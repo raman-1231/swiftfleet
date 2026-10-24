@@ -1,0 +1,17 @@
+{
+  "name": "swiftfleet-monorepo",
+  "version": "1.0.0",
+  "description": "SwiftFleet - Premium Crowdsourced Delivery Workforce SaaS Platform",
+  "private": true,
+  "scripts": {
+    "dev:server": "npm.cmd --prefix server run dev",
+    "dev:client": "npm.cmd --prefix client run dev",
+    "start:server": "npm.cmd --prefix server start",
+    "build:client": "npm.cmd --prefix client run build",
+    "seed": "npm.cmd --prefix server run seed",
+    "test:server": "npm.cmd --prefix server test"
+  },
+  "keywords": ["logistics", "delivery", "saas", "mern", "real-time"],
+  "author": "SwiftFleet Team",
+  "license": "ISC"
+}
