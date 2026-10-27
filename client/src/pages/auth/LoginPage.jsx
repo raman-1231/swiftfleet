@@ -20,10 +20,28 @@ export const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setErrorMessage('Please enter your email address.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setErrorMessage('Please enter a valid email address.');
+      return;
+    }
+
+    if (!password) {
+      setErrorMessage('Please enter your password.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      const res = await login(email, password);
+      const res = await login(cleanEmail, password);
       if (res.user.role === 'business') {
         navigate('/business');
       } else if (res.user.role === 'partner') {
@@ -135,6 +153,14 @@ export const LoginPage = () => {
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
+              </div>
+              <div className="flex justify-end mt-1.5">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-semibold text-brand-600 hover:text-brand-800 hover:underline transition-colors"
+                >
+                  Forgot Password?
+                </Link>
               </div>
             </div>
 

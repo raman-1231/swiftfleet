@@ -1,7 +1,10 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const PartnerProfile = require('../models/PartnerProfile');
 const BusinessProfile = require('../models/BusinessProfile');
+const AuditLog = require('../models/AuditLog');
+const emailService = require('../services/emailService');
 const env = require('../config/env');
 
 function generateToken(user) {
@@ -155,11 +158,17 @@ exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
       return res.status(400).json({ message: 'Please provide both email and password.' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    const trimmedEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({ message: 'Please provide a valid email address.' });
+    }
+
+    const user = await User.findOne({ email: trimmedEmail }).select('+password');
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password.' });
     }
@@ -193,6 +202,164 @@ exports.login = async (req, res, next) => {
         phone: user.phone
       },
       profile
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ message: 'Please provide a valid email address.' });
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({ message: 'Please provide a valid email address.' });
+    }
+
+    const genericSuccessResponse = {
+      message: 'If an account exists with that email address, a password reset link has been sent.'
+    };
+
+    const user = await User.findOne({ email: trimmedEmail }).select('+passwordResetTokenHash +passwordResetExpiresAt +passwordResetCooldownUntil');
+    if (!user || user.status === 'suspended') {
+      // Generic response to prevent account enumeration
+      return res.json(genericSuccessResponse);
+    }
+
+    // Cooldown check (60 seconds)
+    if (user.passwordResetCooldownUntil && new Date() < new Date(user.passwordResetCooldownUntil)) {
+      return res.json(genericSuccessResponse);
+    }
+
+    // Generate secure unguessable 64-char token and SHA-256 hash
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins expiry
+    const cooldownUntil = new Date(Date.now() + 60 * 1000); // 60s cooldown
+
+    user.passwordResetTokenHash = tokenHash;
+    user.passwordResetExpiresAt = expiresAt;
+    user.passwordResetCooldownUntil = cooldownUntil;
+    await user.save();
+
+    // Determine production frontend URL
+    const rawOrigin = process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || (env.NODE_ENV === 'production' ? 'https://swiftfleet-rosy.vercel.app' : 'http://localhost:5173');
+    const frontendOrigin = rawOrigin.split(',')[0].trim().replace(/\/$/, '');
+    const resetUrl = `${frontendOrigin}/reset-password?token=${rawResetToken}`;
+
+    // Dispatch email
+    try {
+      await emailService.sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        resetUrl
+      });
+    } catch (mailErr) {
+      console.error('❌ [Auth] Failed to dispatch password reset email:', mailErr.message);
+    }
+
+    // Audit log request
+    try {
+      await AuditLog.create({
+        actorName: user.name,
+        actorRole: user.role,
+        action: 'PASSWORD_RESET_REQUESTED',
+        targetType: 'User',
+        targetId: user._id.toString(),
+        metadata: {
+          email: user.email,
+          expiresAt
+        },
+        ipAddress: req.ip || '127.0.0.1'
+      });
+    } catch (_) {}
+
+    res.json(genericSuccessResponse);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.validateResetToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+
+    if (!token || typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token.trim())) {
+      return res.status(400).json({ valid: false, message: 'Password reset link is invalid or has expired.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const user = await User.findOne({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpiresAt: { $gt: new Date() }
+    }).select('+passwordResetTokenHash +passwordResetExpiresAt');
+
+    if (!user) {
+      return res.status(400).json({ valid: false, message: 'Password reset link is invalid or has expired.' });
+    }
+
+    res.json({ valid: true, message: 'Password reset link is valid.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const { token, newPassword, confirmPassword } = req.body;
+
+    if (!token || typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token.trim())) {
+      return res.status(400).json({ message: 'Password reset link is invalid or has expired.' });
+    }
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters long.' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'New password and confirmation password do not match.' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    const user = await User.findOne({
+      passwordResetTokenHash: tokenHash,
+      passwordResetExpiresAt: { $gt: new Date() }
+    }).select('+password +passwordResetTokenHash +passwordResetExpiresAt');
+
+    if (!user) {
+      return res.status(400).json({ message: 'Password reset link is invalid or has expired.' });
+    }
+
+    // Set new password (pre-save hook will bcrypt hash it)
+    user.password = newPassword;
+    user.passwordResetTokenHash = null;
+    user.passwordResetExpiresAt = null;
+    user.passwordResetCooldownUntil = null;
+    await user.save();
+
+    // Audit log
+    try {
+      await AuditLog.create({
+        actorName: user.name,
+        actorRole: user.role,
+        action: 'PASSWORD_RESET_COMPLETED',
+        targetType: 'User',
+        targetId: user._id.toString(),
+        metadata: {
+          email: user.email
+        },
+        ipAddress: req.ip || '127.0.0.1'
+      });
+    } catch (_) {}
+
+    res.json({
+      message: 'Password has been reset successfully. You may now sign in with your new password.'
     });
   } catch (error) {
     next(error);

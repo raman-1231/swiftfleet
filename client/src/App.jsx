@@ -10,6 +10,8 @@ import { Navbar } from './components/common/Navbar';
 // Pages
 import { LandingPage } from './pages/public/LandingPage';
 import { LoginPage } from './pages/auth/LoginPage';
+import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
 import { RegisterBusinessPage } from './pages/auth/RegisterBusinessPage';
 import { RegisterPartnerPage } from './pages/auth/RegisterPartnerPage';
 
@@ -75,6 +77,8 @@ export default function App() {
                   {/* Public Pages */}
                   <Route path="/" element={<LandingPage />} />
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                  <Route path="/reset-password" element={<ResetPasswordPage />} />
                   <Route path="/register-business" element={<RegisterBusinessPage />} />
                   <Route path="/register-partner" element={<RegisterPartnerPage />} />
                   <Route path="/track" element={<TrackOrderLookupPage />} />

@@ -1732,4 +1732,216 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(duplicateDelivery.body.message).toMatch(/already.*delivered/i);
     });
   });
+
+  describe('13. Email-Based Login & Secure Forgot Password Recovery Flow', () => {
+    let testUserEmail;
+    let testUserInitialPassword;
+    let testUser;
+
+    beforeEach(async () => {
+      const emailService = require('../services/emailService');
+      emailService.clearLastDispatchedEmailForTesting();
+
+      testUserEmail = `recovery_user_${Date.now()}_${Math.floor(Math.random() * 10000)}@test.com`;
+      testUserInitialPassword = 'InitialSecurePass123!';
+
+      testUser = await User.create({
+        name: 'Recovery Test User',
+        email: testUserEmail,
+        password: testUserInitialPassword,
+        role: 'business',
+        phone: '+91 98110 88776'
+      });
+    });
+
+    it('validates email format and credentials on login with strict anti-enumeration error responses', async () => {
+      // 1. Missing fields
+      const missingFields = await request(app)
+        .post('/api/auth/login')
+        .send({ email: '' });
+      expect(missingFields.status).toBe(400);
+      expect(missingFields.body.message).toMatch(/both email and password/i);
+
+      // 2. Malformed email address
+      const malformedEmail = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'not-an-email-format', password: 'Password123!' });
+      expect(malformedEmail.status).toBe(400);
+      expect(malformedEmail.body.message).toMatch(/valid email address/i);
+
+      // 3. Non-existent email -> 401
+      const nonExistentRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'nonexistent_user_999999@test.com', password: 'Password123!' });
+      expect(nonExistentRes.status).toBe(401);
+      expect(nonExistentRes.body.message).toBe('Invalid email or password.');
+
+      // 4. Correct email, wrong password -> 401 with IDENTICAL generic message
+      const wrongPasswordRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testUserEmail, password: 'WrongPassword456!' });
+      expect(wrongPasswordRes.status).toBe(401);
+      expect(wrongPasswordRes.body.message).toBe(nonExistentRes.body.message);
+
+      // 5. Correct email, correct password -> 200 with JWT token
+      const successRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testUserEmail, password: testUserInitialPassword });
+      expect(successRes.status).toBe(200);
+      expect(successRes.body.token).toBeDefined();
+      expect(successRes.body.user.email).toBe(testUserEmail);
+    });
+
+    it('enforces anti-enumeration on forgot password, generates secure hashed token, and dispatches reset email', async () => {
+      const emailService = require('../services/emailService');
+      const crypto = require('crypto');
+
+      // 1. Invalid email format
+      const invalidEmailRes = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'invalid_email_string' });
+      expect(invalidEmailRes.status).toBe(400);
+      expect(invalidEmailRes.body.message).toMatch(/valid email/i);
+
+      // 2. Non-existent email returns generic success and does NOT dispatch email
+      emailService.clearLastDispatchedEmailForTesting();
+      const unknownEmailRes = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: 'nobody_here_random_12345@test.com' });
+      expect(unknownEmailRes.status).toBe(200);
+      expect(unknownEmailRes.body.message).toMatch(/If an account exists.*password reset link has been sent/i);
+      expect(emailService.getLastDispatchedEmailForTesting()).toBeNull();
+
+      // 3. Existing user returns IDENTICAL generic message and dispatches email
+      const existingUserRes = await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: testUserEmail });
+      expect(existingUserRes.status).toBe(200);
+      expect(existingUserRes.body.message).toBe(unknownEmailRes.body.message);
+      // Ensure raw token is NEVER returned in response
+      expect(existingUserRes.body.token).toBeUndefined();
+      expect(existingUserRes.body.resetToken).toBeUndefined();
+
+      // Verify email was dispatched
+      const dispatched = emailService.getLastDispatchedEmailForTesting();
+      expect(dispatched).not.toBeNull();
+      expect(dispatched.to).toBe(testUserEmail);
+      expect(dispatched.resetUrl).toMatch(/\/reset-password\?token=[a-f0-9]{64}/);
+
+      // Extract raw token from resetUrl
+      const tokenMatch = dispatched.resetUrl.match(/token=([a-f0-9]{64})/);
+      expect(tokenMatch).not.toBeNull();
+      const rawToken = tokenMatch[1];
+
+      // Check User record in database: token MUST be SHA-256 hashed, NOT plaintext!
+      const userInDb = await User.findById(testUser._id).select('+passwordResetTokenHash +passwordResetExpiresAt');
+      expect(userInDb.passwordResetTokenHash).toBeDefined();
+      expect(userInDb.passwordResetTokenHash).not.toBe(rawToken);
+      const expectedHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      expect(userInDb.passwordResetTokenHash).toBe(expectedHash);
+      expect(userInDb.passwordResetExpiresAt.getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('validates tokens and strictly rejects invalid, malformed, or expired tokens', async () => {
+      const emailService = require('../services/emailService');
+
+      // Request reset to get a valid token
+      await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: testUserEmail });
+      const rawToken = emailService.getLastDispatchedEmailForTesting().resetUrl.match(/token=([a-f0-9]{64})/)[1];
+
+      // 1. Valid token passes validation
+      const validRes = await request(app).get(`/api/auth/validate-reset-token/${rawToken}`);
+      expect(validRes.status).toBe(200);
+      expect(validRes.body.valid).toBe(true);
+
+      // 2. Malformed token format (too short / non-hex)
+      const malformedRes = await request(app).get('/api/auth/validate-reset-token/shortToken123');
+      expect(malformedRes.status).toBe(400);
+      expect(malformedRes.body.valid).toBe(false);
+
+      // 3. Unknown 64-char hex token
+      const unknownToken = 'a'.repeat(64);
+      const unknownRes = await request(app).get(`/api/auth/validate-reset-token/${unknownToken}`);
+      expect(unknownRes.status).toBe(400);
+      expect(unknownRes.body.valid).toBe(false);
+
+      // 4. Expired token
+      await User.updateOne(
+        { _id: testUser._id },
+        { passwordResetExpiresAt: new Date(Date.now() - 60000) } // 1 minute in the past
+      );
+      const expiredRes = await request(app).get(`/api/auth/validate-reset-token/${rawToken}`);
+      expect(expiredRes.status).toBe(400);
+      expect(expiredRes.body.valid).toBe(false);
+    });
+
+    it('completes password reset, enforces single-use token invalidation, and prevents login with old password', async () => {
+      const emailService = require('../services/emailService');
+
+      // Request token
+      await request(app)
+        .post('/api/auth/forgot-password')
+        .send({ email: testUserEmail });
+      const rawToken = emailService.getLastDispatchedEmailForTesting().resetUrl.match(/token=([a-f0-9]{64})/)[1];
+
+      // 1. Short password rejection (< 6 chars)
+      const shortPassRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: rawToken, newPassword: '123', confirmPassword: '123' });
+      expect(shortPassRes.status).toBe(400);
+      expect(shortPassRes.body.message).toMatch(/at least 6 characters/i);
+
+      // 2. Password mismatch rejection
+      const mismatchRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: rawToken, newPassword: 'NewSecurePassword1!', confirmPassword: 'DifferentPassword2!' });
+      expect(mismatchRes.status).toBe(400);
+      expect(mismatchRes.body.message).toMatch(/do not match/i);
+
+      // 3. Successful password reset
+      const newPassword = 'BrandNewPassword2026!';
+      const successResetRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: rawToken, newPassword, confirmPassword: newPassword });
+      expect(successResetRes.status).toBe(200);
+      expect(successResetRes.body.message).toMatch(/reset successfully/i);
+
+      // 4. Token is immediately cleared / single-use: repeating with same token fails
+      const reuseRes = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: rawToken, newPassword: 'AnotherPassword3!', confirmPassword: 'AnotherPassword3!' });
+      expect(reuseRes.status).toBe(400);
+      expect(reuseRes.body.message).toMatch(/invalid or has expired/i);
+
+      // Token validation also fails now
+      const validateAgain = await request(app).get(`/api/auth/validate-reset-token/${rawToken}`);
+      expect(validateAgain.status).toBe(400);
+      expect(validateAgain.body.valid).toBe(false);
+
+      // 5. Old password is no longer accepted for login
+      const oldLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testUserEmail, password: testUserInitialPassword });
+      expect(oldLoginRes.status).toBe(401);
+      expect(oldLoginRes.body.message).toBe('Invalid email or password.');
+
+      // 6. New password works successfully
+      const newLoginRes = await request(app)
+        .post('/api/auth/login')
+        .send({ email: testUserEmail, password: newPassword });
+      expect(newLoginRes.status).toBe(200);
+      expect(newLoginRes.body.token).toBeDefined();
+      expect(newLoginRes.body.user.email).toBe(testUserEmail);
+
+      // 7. Verify audit log entry
+      const auditLog = await AuditLog.findOne({
+        targetId: testUser._id.toString(),
+        action: 'PASSWORD_RESET_COMPLETED'
+      });
+      expect(auditLog).not.toBeNull();
+      expect(auditLog.metadata.email).toBe(testUserEmail);
+    });
+  });
 });

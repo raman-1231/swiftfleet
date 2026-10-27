@@ -44,9 +44,33 @@ const pinRegenLimiter = rateLimit({
   }
 });
 
+// Forgot password request limiter: 5 requests per 15 mins per IP to prevent spam and enumeration
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Too many password reset requests from this IP. Please try again after 15 minutes.'
+  }
+});
+
+// Reset password submission limiter: 10 attempts per 15 mins per IP
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Too many password reset attempts. Please try again after 15 minutes.'
+  }
+});
+
 module.exports = {
   authLimiter,
   apiLimiter,
   trackingLimiter,
-  pinRegenLimiter
+  pinRegenLimiter,
+  forgotPasswordLimiter,
+  resetPasswordLimiter
 };

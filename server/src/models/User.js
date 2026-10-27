@@ -42,6 +42,22 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ['active', 'suspended'],
       default: 'active'
+    },
+    passwordResetTokenHash: {
+      type: String,
+      select: false,
+      default: null,
+      index: true
+    },
+    passwordResetExpiresAt: {
+      type: Date,
+      select: false,
+      default: null
+    },
+    passwordResetCooldownUntil: {
+      type: Date,
+      select: false,
+      default: null
     }
   },
   {

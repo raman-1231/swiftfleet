@@ -20,6 +20,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb-memory-server": "^9.1.8",
     "mongoose": "^8.3.2",
+    "nodemailer": "^10.2.1",
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
