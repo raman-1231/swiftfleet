@@ -104,11 +104,22 @@ exports.getOrderTracking = async (req, res, next) => {
       ? '••••••' + rawDropoffPhone.slice(-4)
       : rawDropoffPhone;
 
+    const deliveredEvent = (order.timeline || []).slice().reverse().find(ev => ev.status === 'delivered');
+    const deliveredAt = deliveredEvent?.timestamp || (order.status === 'delivered' ? order.updatedAt : null);
+
     res.json({
       order: {
         orderNumber: order.orderNumber,
         status: order.status,
         createdAt: order.createdAt,
+        deliveredAt,
+        proofOfDelivery: order.status === 'delivered' ? {
+          deliveredAt,
+          verifiedViaPin: true,
+          courierName: order.assignedPartnerId?.name || 'Verified Courier Partner',
+          recipientName: order.dropoff?.contactName || 'Recipient',
+          note: deliveredEvent?.note || 'Handover successfully authenticated with customer delivery PIN.'
+        } : null,
         estimatedDurationMins: order.estimatedDurationMins,
         pickup: {
           address: order.pickup?.address,
@@ -158,7 +169,7 @@ exports.regeneratePin = async (req, res, next) => {
       return res.status(404).json({ message: 'Order tracking link is invalid or expired.' });
     }
 
-    if (['delivered', 'cancelled', 'expired'].includes(order.status)) {
+    if (order.status === 'delivered' || order.handoverPinConsumed || ['cancelled', 'expired'].includes(order.status)) {
       return res.status(400).json({
         message: `Cannot regenerate delivery PIN for an order in '${order.status}' state.`
       });
@@ -185,6 +196,7 @@ exports.regeneratePin = async (req, res, next) => {
       {
         _id: order._id,
         status: { $nin: ['delivered', 'cancelled', 'expired'] },
+        handoverPinConsumed: { $ne: true },
         $or: [
           { handoverPinCooldownUntil: { $lte: new Date() } },
           { handoverPinCooldownUntil: null }

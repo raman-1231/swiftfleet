@@ -1656,5 +1656,80 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       const dbCheck = await Order.findById(legacyOrder._id);
       expect(dbCheck.trackingToken).toBe(res.body.trackingToken);
     });
+
+    it('keeps completed order tracking link active and read-only while strictly rejecting OTP/PIN regeneration and re-verification', async () => {
+      // 1. Create a completed/delivered order with handover PIN consumed
+      const completedOrder = await Order.create({
+        orderNumber: `SWF-${Math.floor(10000 + Math.random() * 90000)}`,
+        businessId,
+        status: 'delivered',
+        assignedPartnerId: approvedPartnerId,
+        handoverPinVerified: true,
+        handoverPinConsumed: true,
+        earningsCredited: true,
+        pickup: { address: 'CP Delhi', coordinates: [77.21, 28.63], contactName: 'M' },
+        dropoff: { address: 'Delhi', coordinates: [77.22, 28.64], contactName: 'Rohan Sharma', phone: '+91 98110 55555' },
+        packageDetails: { category: 'food_beverage', weightKg: 1 },
+        pricing: { baseFare: 40, distanceKm: 2, distanceCost: 24, totalCost: 64, partnerPayout: 50 },
+        estimatedDurationMins: 15,
+        timeline: [
+          { status: 'created', timestamp: new Date(Date.now() - 3600000), note: 'Order placed' },
+          { status: 'assigned', timestamp: new Date(Date.now() - 3000000), note: 'Assigned to courier' },
+          { status: 'picked_up', timestamp: new Date(Date.now() - 2000000), note: 'Picked up' },
+          { status: 'delivered', timestamp: new Date(Date.now() - 1000000), note: 'Package delivered with customer PIN verification' }
+        ]
+      });
+
+      // 2. Customer guest access: tracking link remains active and accessible without login
+      const guestRes = await request(app).get(`/api/tracking/${completedOrder.trackingToken}`);
+      expect(guestRes.status).toBe(200);
+      expect(guestRes.body.order.status).toBe('delivered');
+      expect(guestRes.body.order.orderNumber).toBe(completedOrder.orderNumber);
+      expect(guestRes.body.order.deliveredAt).toBeDefined();
+      expect(guestRes.body.order.proofOfDelivery).toBeDefined();
+      expect(guestRes.body.order.proofOfDelivery.verifiedViaPin).toBe(true);
+      expect(guestRes.body.order.proofOfDelivery.recipientName).toBe('Rohan Sharma');
+      expect(guestRes.body.order.dropoff.phone).toBe('••••••5555'); // Masked
+
+      // Delivery PIN state is marked delivered with null PIN
+      expect(guestRes.body.deliveryPin.status).toBe('delivered');
+      expect(guestRes.body.deliveryPin.pin).toBeNull();
+      expect(guestRes.body.deliveryPin.attemptsRemaining).toBe(0);
+
+      // 3. Attempting to request or regenerate PIN on completed order is strictly rejected with HTTP 400
+      const regenRes = await request(app)
+        .post(`/api/tracking/${completedOrder.trackingToken}/regenerate-pin`);
+      expect(regenRes.status).toBe(400);
+      expect(regenRes.body.message).toMatch(/Cannot.*regenerate.*delivery PIN/i);
+
+      // Verify DB was NOT modified: handoverPinConsumed is still true, status is still delivered
+      const orderAfterRegen = await Order.findById(completedOrder._id);
+      expect(orderAfterRegen.status).toBe('delivered');
+      expect(orderAfterRegen.handoverPinConsumed).toBe(true);
+      expect(orderAfterRegen.handoverPinVerified).toBe(true);
+
+      // 4. Attempting to transition a completed order back to an active delivery state is strictly rejected
+      const rollbackRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: completedOrder._id, targetStatus: 'picked_up' });
+      expect(rollbackRes.status).toBe(400);
+      expect(rollbackRes.body.message).toMatch(/Invalid state transition from 'delivered' to 'picked_up'/i);
+
+      const assignedRollback = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: completedOrder._id, targetStatus: 'assigned' });
+      expect(assignedRollback.status).toBe(400);
+      expect(assignedRollback.body.message).toMatch(/Invalid state transition from 'delivered' to 'assigned'/i);
+
+      // Re-delivery attempt on an already delivered order is idempotent and does not alter records
+      const duplicateDelivery = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: completedOrder._id, targetStatus: 'delivered', handoverPin: '123456' });
+      expect(duplicateDelivery.status).toBe(200);
+      expect(duplicateDelivery.body.message).toMatch(/already.*delivered/i);
+    });
   });
 });

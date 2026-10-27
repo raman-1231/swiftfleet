@@ -144,7 +144,7 @@ export const CustomerTrackingPage = () => {
   }, [cooldownSecs]);
 
   const handleRegeneratePin = async () => {
-    if (isRegenerating || cooldownSecs > 0) return;
+    if (isDelivered || isCancelled || isRegenerating || cooldownSecs > 0) return;
     setRegenSuccessMsg('');
     setRegenErrorMsg('');
     setIsRegenerating(true);
@@ -339,17 +339,52 @@ export const CustomerTrackingPage = () => {
           </div>
         )}
 
-        {/* Delivered Confirmation Banner */}
+        {/* Delivered Confirmation & Proof of Delivery Banner */}
         {isDelivered && (
-          <div className="p-6 bg-emerald-50 border-2 border-emerald-300 rounded-2xl flex items-center gap-4 text-emerald-950 shadow-subtle">
-            <div className="w-12 h-12 bg-emerald-600 text-white rounded-xl flex items-center justify-center flex-shrink-0">
-              <CheckCircle2 className="w-7 h-7" />
+          <div className="space-y-4">
+            <div className="p-6 bg-emerald-50 border-2 border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-emerald-950 shadow-subtle">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-emerald-600 text-white rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold">Package Successfully Delivered</h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      Completed & Closed
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-800 mt-0.5">
+                    Handover was authenticated with your customer delivery PIN. Thank you for choosing SwiftFleet!
+                  </p>
+                  {order.deliveredAt && (
+                    <p className="text-[11px] font-mono text-emerald-700 mt-1 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" /> Delivered on {new Date(order.deliveredAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold">Package Successfully Delivered</h3>
-              <p className="text-xs text-emerald-800 mt-0.5">
-                Handover was authenticated with your customer delivery PIN. Thank you for choosing SwiftFleet!
-              </p>
+
+            {/* Proof of Delivery Details Card */}
+            <div className="p-4 bg-white border border-ink-200 rounded-2xl shadow-card grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="p-3 bg-ink-50 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-ink-400 block">Verification Method</span>
+                <span className="font-bold text-ink-900 mt-0.5 block flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" /> Secure Handover PIN
+                </span>
+                <span className="text-[10px] text-emerald-700 block mt-0.5">Authenticated & Consumed</span>
+              </div>
+              <div className="p-3 bg-ink-50 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-ink-400 block">Delivered To</span>
+                <span className="font-bold text-ink-900 mt-0.5 block">{order.dropoff?.contactName || 'Recipient'}</span>
+                <span className="text-[10px] text-ink-500 block mt-0.5">{order.dropoff?.phone}</span>
+              </div>
+              <div className="p-3 bg-ink-50 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-ink-400 block">Fulfilled By</span>
+                <span className="font-bold text-ink-900 mt-0.5 block">{order.assignedPartner?.name || 'Verified Courier Partner'}</span>
+                <span className="text-[10px] text-brand-600 block mt-0.5">Delivery Closed</span>
+              </div>
             </div>
           </div>
         )}
