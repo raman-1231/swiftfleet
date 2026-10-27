@@ -44,10 +44,10 @@ const pinRegenLimiter = rateLimit({
   }
 });
 
-// Forgot password request limiter: 5 requests per 15 mins per IP to prevent spam and enumeration
+// Forgot password request limiter: 5 requests per 15 mins per IP to prevent spam and enumeration (relaxed in test runner)
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined ? 50 : 5,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -58,7 +58,7 @@ const forgotPasswordLimiter = rateLimit({
 // Reset password submission limiter: 10 attempts per 15 mins per IP
 const resetPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined ? 50 : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: {

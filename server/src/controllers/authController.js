@@ -248,10 +248,9 @@ exports.forgotPassword = async (req, res, next) => {
     user.passwordResetCooldownUntil = cooldownUntil;
     await user.save();
 
-    // Determine production frontend URL
-    const rawOrigin = process.env.FRONTEND_URL || process.env.CLIENT_ORIGIN || (env.NODE_ENV === 'production' ? 'https://swiftfleet-rosy.vercel.app' : 'http://localhost:5173');
-    const frontendOrigin = rawOrigin.split(',')[0].trim().replace(/\/$/, '');
-    const resetUrl = `${frontendOrigin}/reset-password?token=${rawResetToken}`;
+    // Determine frontend URL using validated resolver (never uses localhost in production)
+    const frontendOrigin = env.getFrontendBaseUrl ? env.getFrontendBaseUrl() : 'https://swiftfleet-rosy.vercel.app';
+    const resetUrl = `${frontendOrigin}/reset-password?token=${encodeURIComponent(rawResetToken)}`;
 
     // Dispatch email
     try {

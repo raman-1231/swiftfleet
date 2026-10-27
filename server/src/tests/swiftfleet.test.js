@@ -1943,5 +1943,65 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(auditLog).not.toBeNull();
       expect(auditLog.metadata.email).toBe(testUserEmail);
     });
+
+    it('constructs production password-reset URLs using configured Vercel origin and strictly prohibits localhost', async () => {
+      const emailService = require('../services/emailService');
+      const envModule = require('../config/env');
+
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalClientUrl = process.env.CLIENT_URL;
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      const originalClientOrigin = process.env.CLIENT_ORIGIN;
+
+      try {
+        // 1. Production with default fallback: Must resolve to https://swiftfleet-rosy.vercel.app
+        process.env.NODE_ENV = 'production';
+        delete process.env.CLIENT_URL;
+        delete process.env.FRONTEND_URL;
+        process.env.CLIENT_ORIGIN = 'http://localhost:5173,https://swiftfleet-rosy.vercel.app';
+
+        expect(envModule.getFrontendBaseUrl()).toBe('https://swiftfleet-rosy.vercel.app');
+
+        // 2. Production with CLIENT_ORIGIN only having localhost: Must fall back to Vercel and reject localhost
+        process.env.CLIENT_ORIGIN = 'http://localhost:5173';
+        expect(envModule.getFrontendBaseUrl()).toBe('https://swiftfleet-rosy.vercel.app');
+
+        // 3. Production with CLIENT_URL configured
+        process.env.CLIENT_URL = 'https://custom-domain.swiftfleet.io';
+        expect(envModule.getFrontendBaseUrl()).toBe('https://custom-domain.swiftfleet.io');
+
+        // 4. Production with FRONTEND_URL configured
+        delete process.env.CLIENT_URL;
+        process.env.FRONTEND_URL = 'https://swiftfleet-rosy.vercel.app';
+        expect(envModule.getFrontendBaseUrl()).toBe('https://swiftfleet-rosy.vercel.app');
+
+        // 5. Test full Forgot Password flow in production mode:
+        // Reset cooldown in DB for testUser
+        await User.updateOne({ _id: testUser._id }, { $set: { passwordResetCooldownUntil: null } });
+        emailService.clearLastDispatchedEmailForTesting();
+
+        // Attempt host header injection to ensure host header is never trusted
+        const res = await request(app)
+          .post('/api/auth/forgot-password')
+          .set('Host', 'evil-phishing-domain.com')
+          .set('X-Forwarded-Host', 'malicious-domain.com')
+          .send({ email: testUserEmail });
+
+        expect(res.status).toBe(200);
+
+        const dispatched = emailService.getLastDispatchedEmailForTesting();
+        expect(dispatched).not.toBeNull();
+        expect(dispatched.resetUrl).toMatch(/^https:\/\/swiftfleet-rosy\.vercel\.app\/reset-password\?token=[a-f0-9]{64}$/);
+        expect(dispatched.resetUrl).not.toContain('localhost');
+        expect(dispatched.resetUrl).not.toContain('127.0.0.1');
+        expect(dispatched.resetUrl).not.toContain('evil-phishing-domain.com');
+        expect(dispatched.resetUrl).not.toContain('malicious-domain.com');
+      } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+        if (originalClientUrl) process.env.CLIENT_URL = originalClientUrl; else delete process.env.CLIENT_URL;
+        if (originalFrontendUrl) process.env.FRONTEND_URL = originalFrontendUrl; else delete process.env.FRONTEND_URL;
+        if (originalClientOrigin) process.env.CLIENT_ORIGIN = originalClientOrigin; else delete process.env.CLIENT_ORIGIN;
+      }
+    });
   });
 });

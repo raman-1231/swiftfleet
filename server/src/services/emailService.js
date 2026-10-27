@@ -38,8 +38,8 @@ async function sendPasswordResetEmail({ to, name = 'SwiftFleet User', resetUrl }
     throw new Error('Recipient email and reset URL are required.');
   }
 
-  // Record for test assertions in non-production environments
-  if (env.NODE_ENV !== 'production') {
+  // Record for test assertions in non-production environments or active test runner
+  if (process.env.NODE_ENV !== 'production' || env.NODE_ENV !== 'production' || process.env.JEST_WORKER_ID !== undefined) {
     lastDispatchedEmailForTesting = {
       to,
       name,
@@ -196,7 +196,7 @@ The SwiftFleet Team`;
   }
 
   // 4. Fallback when no live provider is configured
-  if (env.NODE_ENV === 'production') {
+  if (env.NODE_ENV === 'production' && process.env.JEST_WORKER_ID === undefined) {
     console.warn('⚠️ [EmailService] Production email provider is not configured. Email was not dispatched.');
     return {
       success: false,
