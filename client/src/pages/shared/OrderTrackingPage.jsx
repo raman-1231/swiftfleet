@@ -20,7 +20,9 @@ import {
   AlertTriangle,
   ArrowLeft,
   Navigation,
-  Lock
+  Lock,
+  Share2,
+  Copy
 } from 'lucide-react';
 
 export const OrderTrackingPage = () => {
@@ -190,25 +192,35 @@ export const OrderTrackingPage = () => {
         </div>
       </div>
 
-      {/* Handover PIN banner for merchant and customer authorization */}
-      {order.handoverPin && order.status !== 'delivered' && (
-        <div className="p-4 bg-brand-50 border-2 border-brand-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-subtle">
+      {/* Customer Tracking Link sharing card for business owner */}
+      {order.trackingToken && order.status !== 'delivered' && (
+        <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-subtle">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold flex-shrink-0">
-              <Lock className="w-5 h-5" />
+              <Share2 className="w-5 h-5" />
             </div>
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-brand-900">
-                Customer Delivery Handover PIN
+                Customer Delivery Tracking & PIN Link
               </h4>
               <p className="text-xs text-brand-700">
-                Provide this 4-digit code to your delivery courier upon package arrival to authenticate handoff.
+                Share this secure link with your recipient. They can view live map progress and access their 6-digit handover PIN.
               </p>
             </div>
           </div>
-          <div className="font-mono text-2xl font-black tracking-widest text-brand-700 bg-white px-5 py-2 rounded-xl border border-brand-200 text-center shadow-sm">
-            {order.handoverPin}
-          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
+              navigator.clipboard.writeText(fullUrl)
+                .then(() => toast.success('Tracking Link Copied', 'Customer tracking link copied to clipboard.'))
+                .catch(() => toast.info('Customer Tracking URL', fullUrl));
+            }}
+            leftIcon={<Copy className="w-3.5 h-3.5" />}
+          >
+            Copy Customer Link
+          </Button>
         </div>
       )}
 

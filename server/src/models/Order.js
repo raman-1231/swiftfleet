@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const { encrypt, decrypt, generateTrackingToken } = require('../utils/crypto');
 
 const orderSchema = new mongoose.Schema(
   {
@@ -7,6 +9,16 @@ const orderSchema = new mongoose.Schema(
       unique: true,
       required: true,
       index: true
+    },
+    trackingToken: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true
+    },
+    trackingTokenRevoked: {
+      type: Boolean,
+      default: false
     },
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -106,13 +118,25 @@ const orderSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
-    handoverPin: {
+    handoverPinEncrypted: {
       type: String,
       default: ''
     },
     handoverPinHash: {
       type: String,
       default: ''
+    },
+    handoverPinExpiresAt: {
+      type: Date,
+      default: null
+    },
+    handoverPinLastGeneratedAt: {
+      type: Date,
+      default: null
+    },
+    handoverPinCooldownUntil: {
+      type: Date,
+      default: null
     },
     handoverPinAttempts: {
       type: Number,
@@ -123,6 +147,10 @@ const orderSchema = new mongoose.Schema(
       default: false
     },
     handoverPinVerified: {
+      type: Boolean,
+      default: false
+    },
+    handoverPinConsumed: {
       type: Boolean,
       default: false
     },
@@ -139,6 +167,49 @@ const orderSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// Virtual getter/setter for handoverPin to keep backward-compatibility with tests while encrypting at rest
+orderSchema.virtual('handoverPin')
+  .get(function () {
+    if (this._tempHandoverPin) return this._tempHandoverPin;
+    if (this.handoverPinEncrypted) {
+      try {
+        return decrypt(this.handoverPinEncrypted);
+      } catch (_) {
+        return '';
+      }
+    }
+    return '';
+  })
+  .set(function (val) {
+    this._tempHandoverPin = val ? val.toString().trim() : '';
+  });
+
+orderSchema.pre('save', async function (next) {
+  try {
+    if (!this.trackingToken) {
+      this.trackingToken = generateTrackingToken();
+    }
+
+    if (this._tempHandoverPin) {
+      const pinStr = this._tempHandoverPin;
+      this.handoverPinEncrypted = encrypt(pinStr);
+      if (!this.handoverPinHash) {
+        this.handoverPinHash = await bcrypt.hash(pinStr, 10);
+      }
+      if (!this.handoverPinExpiresAt) {
+        this.handoverPinExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      }
+      if (!this.handoverPinLastGeneratedAt) {
+        this.handoverPinLastGeneratedAt = new Date();
+      }
+      this._tempHandoverPin = undefined;
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Compound indexes for dispatch and listing queries
 orderSchema.index({ businessId: 1, status: 1 });

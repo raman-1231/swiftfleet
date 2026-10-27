@@ -77,8 +77,24 @@ function maskIdentifier(idNumber, docType = '') {
   return `${maskedPrefix}-${last4}`;
 }
 
+/**
+ * Generate a cryptographically secure 6-digit numeric delivery PIN
+ */
+function generateDeliveryPin() {
+  return crypto.randomInt(100000, 1000000).toString();
+}
+
+/**
+ * Generate a cryptographically secure, unguessable URL-safe tracking token
+ */
+function generateTrackingToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
 module.exports = {
   encrypt,
   decrypt,
-  maskIdentifier
+  maskIdentifier,
+  generateDeliveryPin,
+  generateTrackingToken
 };

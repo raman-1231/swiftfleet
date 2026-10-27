@@ -22,7 +22,9 @@ import {
   Filter,
   IndianRupee,
   TrendingUp,
-  MapPin
+  MapPin,
+  Share2,
+  Copy
 } from 'lucide-react';
 
 export const BusinessDashboard = () => {
@@ -56,6 +58,22 @@ export const BusinessDashboard = () => {
     } finally {
       if (!silent) setLoading(false);
     }
+  };
+
+  const handleCopyTrackingLink = (e, trackingToken, orderNumber) => {
+    e.stopPropagation();
+    if (!trackingToken) {
+      toast.error('Tracking Link Unavailable', 'This order does not have an active tracking token.');
+      return;
+    }
+    const fullUrl = `${window.location.origin}/track/${trackingToken}`;
+    navigator.clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Tracking Link Copied', `Customer tracking link for #${orderNumber} copied to clipboard.`);
+      })
+      .catch(() => {
+        toast.info('Customer Tracking URL', fullUrl);
+      });
   };
 
   useEffect(() => {
@@ -279,10 +297,16 @@ export const BusinessDashboard = () => {
                             {order.orderNumber}
                           </span>
                           <StatusBadge status={order.status} />
-                          {order.handoverPin && order.status !== 'delivered' && (
-                            <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-50 text-amber-900 border border-amber-300">
-                              PIN: {order.handoverPin}
-                            </span>
+                          {order.trackingToken && order.status !== 'delivered' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyTrackingLink(e, order.trackingToken, order.orderNumber)}
+                              title="Copy secure customer tracking link to share with recipient"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200 transition-colors"
+                            >
+                              <Share2 className="w-3 h-3" />
+                              <span>Share Link</span>
+                            </button>
                           )}
                         </div>
                         <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
@@ -390,6 +414,18 @@ export const BusinessDashboard = () => {
                     </span>
                   </div>
                 </div>
+
+                {selectedOrderForMap.trackingToken && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={(e) => handleCopyTrackingLink(e, selectedOrderForMap.trackingToken, selectedOrderForMap.orderNumber)}
+                    leftIcon={<Share2 className="w-3.5 h-3.5" />}
+                    className="w-full text-brand-700 bg-brand-50 hover:bg-brand-100 border-brand-200"
+                  >
+                    Copy Customer Tracking Link
+                  </Button>
+                )}
 
                 <Link to={`/orders/${selectedOrderForMap._id}`} className="block">
                   <Button variant="outline" size="sm" className="w-full">

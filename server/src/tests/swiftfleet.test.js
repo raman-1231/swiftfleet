@@ -838,14 +838,14 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(validDeliveredRes.body.order.status).toBe('delivered');
     });
 
-    it('hides handover PIN from courier and exposes it only to owning merchant and admin', async () => {
+    it('hides handover PIN from courier and merchant and restricts disclosure exclusively to customer tracking token', async () => {
       const orderWithPin = await createTestOrder({
         status: 'assigned',
         assignedPartnerId: approvedPartnerId,
         handoverPin: '9182'
       });
 
-      // Courier view
+      // Courier view: never exposes PIN
       const courierView = await request(app)
         .get(`/api/orders/${orderWithPin._id}`)
         .set('Authorization', `Bearer ${approvedPartnerToken}`);
@@ -853,13 +853,20 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(courierView.body.handoverPin).toBeUndefined();
       expect(courierView.body.handoverPinHash).toBeUndefined();
 
-      // Merchant owner view
+      // Merchant owner view: never exposes PIN directly (only shares tracking link)
       const merchantView = await request(app)
         .get(`/api/orders/${orderWithPin._id}`)
         .set('Authorization', `Bearer ${businessToken}`);
       expect(merchantView.status).toBe(200);
-      expect(merchantView.body.handoverPin).toBe('9182');
+      expect(merchantView.body.handoverPin).toBeUndefined();
       expect(merchantView.body.handoverPinHash).toBeUndefined();
+      expect(merchantView.body.trackingToken).toBeDefined();
+
+      // Customer view via secure unguessable tracking token: discloses valid active PIN
+      const customerTracking = await request(app)
+        .get(`/api/tracking/${orderWithPin.trackingToken}`);
+      expect(customerTracking.status).toBe(200);
+      expect(customerTracking.body.deliveryPin.pin).toBe('9182');
     });
 
     it('encrypts sensitive KYC documents and masks them in general API responses while providing audit-logged decrypt for admin', async () => {
@@ -1087,20 +1094,20 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(offeredCourierEvents[0].payload.order.handoverPin).toBeUndefined();
       expect(offeredCourierEvents[0].payload.order.handoverPinHash).toBeUndefined();
 
-      // 4. Merchant room: user:67123456789abcdef0123451
+      // 4. Merchant room: user:67123456789abcdef0123451 (PIN strictly stripped to protect customer privacy)
       const merchantRoomEvents = deliveredEvents['user:67123456789abcdef0123451'];
       expect(merchantRoomEvents).toBeDefined();
       expect(merchantRoomEvents.length).toBe(1);
       expect(merchantRoomEvents[0].event).toBe('order_status_updated');
-      expect(merchantRoomEvents[0].payload.order.handoverPin).toBe('6543');
+      expect(merchantRoomEvents[0].payload.order.handoverPin).toBeUndefined();
       expect(merchantRoomEvents[0].payload.order.handoverPinHash).toBeUndefined();
 
-      // 5. Admin role room: role:admin
+      // 5. Admin role room: role:admin (PIN strictly stripped)
       const adminRoleEvents = deliveredEvents['role:admin'];
       expect(adminRoleEvents).toBeDefined();
       expect(adminRoleEvents.length).toBe(1);
       expect(adminRoleEvents[0].event).toBe('order_status_updated');
-      expect(adminRoleEvents[0].payload.order.handoverPin).toBe('6543');
+      expect(adminRoleEvents[0].payload.order.handoverPin).toBeUndefined();
       expect(adminRoleEvents[0].payload.order.handoverPinHash).toBeUndefined();
 
       spy.mockRestore();
@@ -1276,6 +1283,204 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
         JWT_SECRET: 'a_very_long_valid_jwt_secret_32_chars!',
         ENCRYPTION_KEY: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
       })).not.toThrow();
+    });
+  });
+
+  describe('11. Customer Tracking Page & Secure Delivery PIN Lifecycle Workflow', () => {
+    let trackingOrder;
+
+    beforeEach(async () => {
+      // Create a test order through the actual business order creation endpoint
+      const res = await request(app)
+        .post('/api/orders')
+        .set('Authorization', `Bearer ${businessToken}`)
+        .send({
+          pickup: {
+            address: 'Shop 14, Connaught Place, New Delhi',
+            pincode: '110001',
+            coordinates: [77.2167, 28.6315],
+            contactName: 'Merchant Desk',
+            phone: '+91 98110 12345'
+          },
+          dropoff: {
+            address: 'Barakhamba Road, Connaught Place, New Delhi',
+            pincode: '110001',
+            coordinates: [77.2245, 28.6300],
+            contactName: 'Customer Priya',
+            phone: '+91 98110 54321'
+          },
+          packageDetails: {
+            category: 'food_beverage',
+            weightKg: 1.5
+          }
+        });
+
+      trackingOrder = res.body.order;
+    });
+
+    it('generates a cryptographically secure tracking token and rejects invalid/forged tokens', async () => {
+      expect(trackingOrder.trackingToken).toBeDefined();
+      expect(typeof trackingOrder.trackingToken).toBe('string');
+      expect(trackingOrder.trackingToken.length).toBeGreaterThanOrEqual(32);
+      expect(trackingOrder.trackingUrl).toBe(`/track/${trackingOrder.trackingToken}`);
+
+      // Valid token retrieves customer tracking payload
+      const validRes = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      expect(validRes.status).toBe(200);
+      expect(validRes.body.order.orderNumber).toBe(trackingOrder.orderNumber);
+      expect(validRes.body.order.dropoff.contactName).toBe('Customer Priya');
+
+      // Invalid / forged token -> HTTP 404
+      const invalidRes = await request(app).get('/api/tracking/invalid_forged_token_123456');
+      expect(invalidRes.status).toBe(404);
+      expect(invalidRes.body.message).toMatch(/invalid or expired/i);
+    });
+
+    it('allows external customer to view current valid 6-digit PIN while masking internal details', async () => {
+      const res = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.deliveryPin).toBeDefined();
+      expect(res.body.deliveryPin.status).toBe('active');
+      expect(res.body.deliveryPin.pin).toMatch(/^\d{6}$/);
+      expect(res.body.deliveryPin.attemptsRemaining).toBe(5);
+      expect(res.body.deliveryPin.expiresAt).toBeDefined();
+
+      // Ensure merchant and courier endpoints do NOT leak this PIN
+      const merchantView = await request(app)
+        .get(`/api/orders/${trackingOrder._id}`)
+        .set('Authorization', `Bearer ${businessToken}`);
+      expect(merchantView.body.handoverPin).toBeUndefined();
+      expect(merchantView.body.handoverPinHash).toBeUndefined();
+    });
+
+    it('allows customer to regenerate PIN, immediately invalidating the previous PIN', async () => {
+      // 1. Fetch initial PIN
+      const initRes = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      const initialPin = initRes.body.deliveryPin.pin;
+
+      // 2. Assign courier and advance to picked_up state
+      await Order.updateOne(
+        { _id: trackingOrder._id },
+        { status: 'picked_up', assignedPartnerId: approvedPartnerId }
+      );
+
+      // 3. Customer requests a new PIN
+      const regenRes = await request(app).post(`/api/tracking/${trackingOrder.trackingToken}/regenerate-pin`);
+      expect(regenRes.status).toBe(200);
+      const newPin = regenRes.body.deliveryPin.pin;
+      expect(newPin).toMatch(/^\d{6}$/);
+      expect(newPin).not.toBe(initialPin);
+
+      // 4. Partner attempting to deliver with OLD PIN is rejected
+      const oldPinRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: initialPin });
+      expect(oldPinRes.status).toBe(400);
+      expect(oldPinRes.body.message).toMatch(/Invalid delivery PIN/i);
+
+      // 5. Partner delivering with NEW PIN succeeds
+      const newPinRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: newPin });
+      expect(newPinRes.status).toBe(200);
+      expect(newPinRes.body.order.status).toBe('delivered');
+    });
+
+    it('enforces regeneration cooldown to prevent rapid spamming', async () => {
+      // First regeneration
+      const firstRegen = await request(app).post(`/api/tracking/${trackingOrder.trackingToken}/regenerate-pin`);
+      expect(firstRegen.status).toBe(200);
+
+      // Immediate second regeneration should be rate-limited by cooldown
+      const secondRegen = await request(app).post(`/api/tracking/${trackingOrder.trackingToken}/regenerate-pin`);
+      expect(secondRegen.status).toBe(429);
+      expect(secondRegen.body.message).toMatch(/Please wait.*before requesting/i);
+      expect(secondRegen.body.cooldownSeconds).toBeGreaterThan(0);
+    });
+
+    it('rejects delivery verification with an expired PIN and informs courier to ask customer for new PIN', async () => {
+      // Expire the PIN in the database
+      await Order.updateOne(
+        { _id: trackingOrder._id },
+        {
+          status: 'picked_up',
+          assignedPartnerId: approvedPartnerId,
+          handoverPinExpiresAt: new Date(Date.now() - 5000) // 5 seconds in past
+        }
+      );
+
+      // Customer view reflects expired state
+      const customerView = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      expect(customerView.body.deliveryPin.status).toBe('expired');
+      expect(customerView.body.deliveryPin.pin).toBeNull();
+
+      // Partner attempt to submit expired PIN is rejected
+      const verifyRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: '123456' });
+      expect(verifyRes.status).toBe(400);
+      expect(verifyRes.body.message).toMatch(/expired/i);
+    });
+
+    it('strictly prevents unassigned partners and business owners from verifying delivery PIN', async () => {
+      await Order.updateOne(
+        { _id: trackingOrder._id },
+        { status: 'picked_up', assignedPartnerId: approvedPartnerId }
+      );
+
+      // 1. Unassigned partner attempt
+      const unassignedRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${unapprovedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: '123456' });
+      expect(unassignedRes.status).toBe(403);
+      expect(unassignedRes.body.message).toMatch(/not the assigned delivery partner/i);
+
+      // 2. Business user attempt
+      const bizRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${businessToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: '123456' });
+      expect(bizRes.status).toBe(403);
+    });
+
+    it('successfully consumes PIN upon delivery and prevents reuse or regeneration on completed orders', async () => {
+      // Fetch PIN
+      const customerView = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      const validPin = customerView.body.deliveryPin.pin;
+
+      await Order.updateOne(
+        { _id: trackingOrder._id },
+        { status: 'picked_up', assignedPartnerId: approvedPartnerId }
+      );
+
+      // Complete delivery
+      const deliveredRes = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: validPin });
+      expect(deliveredRes.status).toBe(200);
+
+      // Customer view shows delivered status with consumed PIN
+      const afterDelivery = await request(app).get(`/api/tracking/${trackingOrder.trackingToken}`);
+      expect(afterDelivery.body.order.status).toBe('delivered');
+      expect(afterDelivery.body.deliveryPin.status).toBe('delivered');
+      expect(afterDelivery.body.deliveryPin.pin).toBeNull();
+
+      // Regeneration rejected on delivered order
+      const regenAttempt = await request(app).post(`/api/tracking/${trackingOrder.trackingToken}/regenerate-pin`);
+      expect(regenAttempt.status).toBe(400);
+      expect(regenAttempt.body.message).toMatch(/Cannot regenerate delivery PIN.*delivered/i);
+
+      // Second delivery attempt with same PIN is rejected or idempotent
+      const secondDelivery = await request(app)
+        .post('/api/dispatch/status-update')
+        .set('Authorization', `Bearer ${approvedPartnerToken}`)
+        .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: validPin });
+      expect(secondDelivery.body.message).toMatch(/already.*delivered/i);
     });
   });
 });

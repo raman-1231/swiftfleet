@@ -5,7 +5,7 @@ const auditLogSchema = new mongoose.Schema(
     actorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: false
     },
     actorName: {
       type: String,

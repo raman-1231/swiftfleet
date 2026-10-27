@@ -21,9 +21,22 @@ function initializeSocket(server) {
     }
   });
 
-  // JWT Authentication middleware for sockets
+  // Socket Authentication middleware: supports registered users (JWT) and guest customer order tracking (trackingToken)
   io.use(async (socket, next) => {
     try {
+      const trackingToken = socket.handshake.auth?.trackingToken;
+      if (trackingToken) {
+        const order = await Order.findOne({ trackingToken, trackingTokenRevoked: { $ne: true } })
+          .select('_id orderNumber status businessId assignedPartnerId');
+        if (!order) {
+          return next(new Error('Invalid or revoked tracking token'));
+        }
+        socket.isCustomerTracker = true;
+        socket.trackingOrderId = order._id.toString();
+        socket.trackingOrderNumber = order.orderNumber;
+        return next();
+      }
+
       const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
       if (!token) {
         return next(new Error('Authentication token required'));
@@ -43,6 +56,16 @@ function initializeSocket(server) {
   });
 
   io.on('connection', (socket) => {
+    if (socket.isCustomerTracker) {
+      const orderRoom = `order:${socket.trackingOrderId}`;
+      socket.join(orderRoom);
+      console.log(`📡 [Socket] Customer tracker connected for order ${socket.trackingOrderNumber} -> joined ${orderRoom}`);
+      socket.on('disconnect', () => {
+        console.log(`🔌 [Socket] Customer tracker disconnected [${socket.id}]`);
+      });
+      return;
+    }
+
     const user = socket.user;
     console.log(`📡 [Socket] User connected: ${user.name} (${user.role}) [${socket.id}]`);
 
@@ -202,6 +225,7 @@ function sanitizeOrder(order, { allowPin = false } = {}) {
   if (!order) return null;
   const obj = typeof order.toObject === 'function' ? order.toObject() : JSON.parse(JSON.stringify(order));
   delete obj.handoverPinHash;
+  delete obj.handoverPinEncrypted;
   if (!allowPin) {
     delete obj.handoverPin;
   }
@@ -210,12 +234,8 @@ function sanitizeOrder(order, { allowPin = false } = {}) {
 
 /**
  * Centralized order status broadcaster.
- * Dispatches live updates to all authorized parties:
- * 1. The specific order room (for OrderTrackingPage - PIN stripped)
- * 2. The business owner (for BusinessDashboard - PIN preserved for customer confirmation)
- * 3. The assigned courier (for PartnerWorkspace - PIN stripped for safety)
- * 4. The offered courier (if offer dispatched/expired - PIN stripped)
- * 5. All admin operations coordinators (for AdminConsole & FleetMonitoring - PIN preserved)
+ * Dispatches live updates to all authorized parties without leaking delivery PINs.
+ * Delivery PIN is disclosed exclusively to the customer via the authenticated tracking endpoint.
  */
 function broadcastOrderStatus(order, extra = {}) {
   if (!order) return;
@@ -237,20 +257,19 @@ function broadcastOrderStatus(order, extra = {}) {
       ...extra
     };
 
-    const courierSafeOrder = sanitizeOrder(order, { allowPin: false });
-    const privilegedOrder = sanitizeOrder(order, { allowPin: true });
+    const safeOrder = sanitizeOrder(order);
 
-    // 1. Order tracking room (PIN stripped to prevent courier snooping via room join)
+    // 1. Order tracking room (PIN stripped)
     emitToOrder(orderId, 'order_status_updated', {
       ...basePayload,
-      order: courierSafeOrder
+      order: safeOrder
     });
 
-    // 2. Business merchant personal room (PIN preserved so merchant can communicate it to customer)
+    // 2. Business merchant personal room (PIN stripped - accessible only via customer tracking link)
     if (businessId) {
       emitToUser(businessId, 'order_status_updated', {
         ...basePayload,
-        order: privilegedOrder
+        order: safeOrder
       });
     }
 
@@ -258,7 +277,7 @@ function broadcastOrderStatus(order, extra = {}) {
     if (assignedPartnerId) {
       emitToUser(assignedPartnerId, 'order_status_updated', {
         ...basePayload,
-        order: courierSafeOrder
+        order: safeOrder
       });
     }
 
@@ -266,14 +285,14 @@ function broadcastOrderStatus(order, extra = {}) {
     if (offeredPartnerId && offeredPartnerId !== assignedPartnerId) {
       emitToUser(offeredPartnerId, 'order_status_updated', {
         ...basePayload,
-        order: courierSafeOrder
+        order: safeOrder
       });
     }
 
-    // 5. Admin role room (Privileged operations inspection)
+    // 5. Admin role room (PIN stripped)
     emitToRole('admin', 'order_status_updated', {
       ...basePayload,
-      order: privilegedOrder
+      order: safeOrder
     });
   } catch (err) {
     console.error('❌ [Socket Broadcast Error]:', err.message);

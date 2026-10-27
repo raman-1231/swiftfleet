@@ -78,23 +78,39 @@ async function dispatchOrderOffer(orderId) {
     const targetCourier = bestCandidate.profile;
     const expiresAt = new Date(Date.now() + env.OFFER_TIMEOUT_SECONDS * 1000);
 
-    // Atomically offer the order
-    order.status = 'offered';
-    order.offeredPartnerId = targetCourier.userId._id;
-    order.offerExpiresAt = expiresAt;
-    order.timeline.push({
-      status: 'offered',
-      timestamp: new Date(),
-      note: `Delivery offer dispatched to ${targetCourier.userId.name} (${bestCandidate.distanceKm} km away). Expiration in ${env.OFFER_TIMEOUT_SECONDS}s.`,
-      actorId: targetCourier.userId._id
-    });
+    // Atomically offer the order only if it is still awaiting assignment
+    const updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        status: { $in: ['created', 'offered'] }
+      },
+      {
+        $set: {
+          status: 'offered',
+          offeredPartnerId: targetCourier.userId._id,
+          offerExpiresAt: expiresAt
+        },
+        $push: {
+          timeline: {
+            status: 'offered',
+            timestamp: new Date(),
+            note: `Delivery offer dispatched to ${targetCourier.userId.name} (${bestCandidate.distanceKm} km away). Expiration in ${env.OFFER_TIMEOUT_SECONDS}s.`,
+            actorId: targetCourier.userId._id
+          }
+        }
+      },
+      { new: true }
+    );
 
-    await order.save();
+    if (!updatedOrder) {
+      console.log(`ℹ️ [Dispatch] Order ${orderId} transitioned before offer dispatch completed. Offer cancelled.`);
+      return null;
+    }
 
-    console.log(`🚀 [Dispatch] Order ${order.orderNumber} offered to ${targetCourier.userId.name} (Expires in ${env.OFFER_TIMEOUT_SECONDS}s)`);
+    console.log(`🚀 [Dispatch] Order ${updatedOrder.orderNumber} offered to ${targetCourier.userId.name} (Expires in ${env.OFFER_TIMEOUT_SECONDS}s)`);
 
     // Notify the target partner with delivery offer card payload (sanitized to remove handover PIN)
-    const courierSafeOfferOrder = typeof order.toObject === 'function' ? order.toObject() : JSON.parse(JSON.stringify(order));
+    const courierSafeOfferOrder = typeof updatedOrder.toObject === 'function' ? updatedOrder.toObject() : JSON.parse(JSON.stringify(updatedOrder));
     delete courierSafeOfferOrder.handoverPin;
     delete courierSafeOfferOrder.handoverPinHash;
 
@@ -105,7 +121,7 @@ async function dispatchOrderOffer(orderId) {
     });
 
     // Broadcast status update to business, tracking room, and admin
-    socketService.broadcastOrderStatus(order, {
+    socketService.broadcastOrderStatus(updatedOrder, {
       message: `Offer sent to courier ${targetCourier.userId.name}`,
       expiresAt,
       distanceToPickupKm: bestCandidate.distanceKm
@@ -113,10 +129,10 @@ async function dispatchOrderOffer(orderId) {
 
     // Schedule automated expiration timeout
     const timeoutHandle = setTimeout(async () => {
-      await handleOfferExpiration(order._id, targetCourier.userId._id);
+      await handleOfferExpiration(updatedOrder._id, targetCourier.userId._id);
     }, env.OFFER_TIMEOUT_SECONDS * 1000);
 
-    activeTimers.set(order._id.toString(), timeoutHandle);
+    activeTimers.set(updatedOrder._id.toString(), timeoutHandle);
 
     return targetCourier;
   } catch (error) {

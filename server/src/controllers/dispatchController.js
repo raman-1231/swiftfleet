@@ -4,6 +4,7 @@ const env = require('../config/env');
 const Order = require('../models/Order');
 const PartnerProfile = require('../models/PartnerProfile');
 const EarningsLedger = require('../models/EarningsLedger');
+const AuditLog = require('../models/AuditLog');
 const {
   handleOfferRejection,
   clearOrderTimer,
@@ -266,7 +267,19 @@ exports.updateDeliveryState = async (req, res, next) => {
 
       if (order.handoverPinLocked) {
         return res.status(403).json({
-          message: 'Delivery handover verification is locked due to excessive failed attempts. Please contact administrative support.'
+          message: 'Delivery handover verification is locked due to excessive failed attempts. The customer must request a new PIN on their tracking page.'
+        });
+      }
+
+      if (order.handoverPinConsumed) {
+        return res.status(400).json({
+          message: 'Delivery PIN has already been verified and consumed.'
+        });
+      }
+
+      if (order.handoverPinExpiresAt && new Date() > new Date(order.handoverPinExpiresAt)) {
+        return res.status(400).json({
+          message: 'Delivery PIN has expired. The customer must request a new PIN on their tracking page.'
         });
       }
 
@@ -288,14 +301,50 @@ exports.updateDeliveryState = async (req, res, next) => {
           order.handoverPinLocked = true;
         }
         await order.save();
+
+        // Audit log failed attempt without leaking PIN
+        try {
+          await AuditLog.create({
+            actorId: req.user._id,
+            actorName: req.user.name,
+            actorRole: 'partner',
+            action: 'DELIVERY_PIN_FAILED_ATTEMPT',
+            targetType: 'Order',
+            targetId: order._id.toString(),
+            metadata: {
+              orderNumber: order.orderNumber,
+              attemptNumber: order.handoverPinAttempts,
+              locked: order.handoverPinLocked
+            },
+            ipAddress: req.ip || '127.0.0.1'
+          });
+        } catch (_) {}
+
         const remaining = Math.max(0, 5 - order.handoverPinAttempts);
         return res.status(400).json({
-          message: `Invalid delivery PIN. Please confirm the 4-digit code with the customer. (${remaining} attempts remaining)`,
+          message: `Invalid delivery PIN. Please confirm the code with the customer. (${remaining} attempts remaining)`,
           attemptsRemaining: remaining
         });
       }
 
       order.handoverPinVerified = true;
+      order.handoverPinConsumed = true;
+      order.handoverPinEncrypted = ''; // Invalidate and consume ciphertext
+
+      try {
+        await AuditLog.create({
+          actorId: req.user._id,
+          actorName: req.user.name,
+          actorRole: 'partner',
+          action: 'DELIVERY_PIN_VERIFIED',
+          targetType: 'Order',
+          targetId: order._id.toString(),
+          metadata: {
+            orderNumber: order.orderNumber
+          },
+          ipAddress: req.ip || '127.0.0.1'
+        });
+      } catch (_) {}
     }
 
     order.status = targetStatus;

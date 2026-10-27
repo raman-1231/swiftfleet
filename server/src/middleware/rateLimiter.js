@@ -22,7 +22,31 @@ const apiLimiter = rateLimit({
   }
 });
 
+// Customer public tracking query limiter: 150 requests per 15 mins
+const trackingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Tracking request limit reached. Please wait a few moments before refreshing.'
+  }
+});
+
+// Customer delivery PIN regeneration limiter: 10 regenerations per 15 mins per IP
+const pinRegenLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: 'Too many delivery PIN regeneration attempts. Please wait before requesting another PIN.'
+  }
+});
+
 module.exports = {
   authLimiter,
-  apiLimiter
+  apiLimiter,
+  trackingLimiter,
+  pinRegenLimiter
 };

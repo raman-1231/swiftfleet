@@ -291,8 +291,8 @@ export const PartnerWorkspace = () => {
   // Submit customer handover PIN to complete delivery & credit payout
   const handleConfirmHandover = async (e) => {
     if (e) e.preventDefault();
-    if (!handoverPinInput || handoverPinInput.trim().length !== 4) {
-      setPinError('Please enter the 4-digit PIN provided by the customer.');
+    if (!handoverPinInput || (handoverPinInput.trim().length !== 6 && handoverPinInput.trim().length !== 4)) {
+      setPinError('Please enter the 6-digit delivery PIN provided by the customer.');
       return;
     }
 
@@ -702,7 +702,7 @@ export const PartnerWorkspace = () => {
             }
           }}
           title="Verify Customer Handover PIN"
-          subtitle="Customer must provide the 4-digit verification code to complete delivery and release driver payout."
+          subtitle="Customer must provide the 6-digit verification code to complete delivery and release driver payout."
           maxWidth="max-w-md"
         >
           <form onSubmit={handleConfirmHandover} className="space-y-4">
@@ -711,17 +711,17 @@ export const PartnerWorkspace = () => {
                 Secure Delivery Proof
               </span>
               <p className="text-xs text-ink-600">
-                Ask the recipient for their 4-digit delivery PIN before handing over package #{activeDelivery?.orderNumber}.
+                Ask the recipient for their 6-digit delivery PIN before handing over package #{activeDelivery?.orderNumber}.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-ink-800 mb-1.5 text-center">
-                Enter 4-Digit Handover PIN
+                Enter 6-Digit Delivery PIN
               </label>
               <input
                 type="text"
-                maxLength={4}
+                maxLength={6}
                 value={handoverPinInput}
                 onChange={(e) => {
                   const val = e.target.value.replace(/\D/g, '');
@@ -729,8 +729,8 @@ export const PartnerWorkspace = () => {
                   if (pinError) setPinError('');
                 }}
                 autoFocus
-                placeholder="••••"
-                className="w-full text-center tracking-[0.5em] text-3xl font-mono font-black py-3 px-4 bg-white border-2 border-brand-400 rounded-xl text-ink-950 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm"
+                placeholder="••••••"
+                className="w-full text-center tracking-[0.4em] text-3xl font-mono font-black py-3 px-4 bg-white border-2 border-brand-400 rounded-xl text-ink-950 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm"
               />
               {pinError && (
                 <p className="mt-2 text-xs text-center text-ops-danger font-medium">
@@ -757,7 +757,7 @@ export const PartnerWorkspace = () => {
                 variant="primary"
                 size="sm"
                 isLoading={isActionLoading}
-                disabled={handoverPinInput.length !== 4 || isActionLoading}
+                disabled={(handoverPinInput.length !== 6 && handoverPinInput.length !== 4) || isActionLoading}
               >
                 Verify & Settle Payout
               </Button>

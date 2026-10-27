@@ -4,10 +4,12 @@ import { api } from '../../api/apiClient';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { StatusBadge } from '../../components/common/Badge';
+import { useToast } from '../../context/ToastContext';
 import { formatINR } from '../../utils/currency';
-import { Search, Filter, ArrowUpRight, PlusCircle, Package } from 'lucide-react';
+import { Search, Filter, ArrowUpRight, PlusCircle, Package, Share2 } from 'lucide-react';
 
 export const OrderHistoryPage = () => {
+  const toast = useToast();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -32,6 +34,21 @@ export const OrderHistoryPage = () => {
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchOrders();
+  };
+
+  const handleCopyTrackingLink = (trackingToken, orderNumber) => {
+    if (!trackingToken) {
+      toast.error('Tracking Link Unavailable', 'No active tracking token for this order.');
+      return;
+    }
+    const fullUrl = `${window.location.origin}/track/${trackingToken}`;
+    navigator.clipboard.writeText(fullUrl)
+      .then(() => {
+        toast.success('Tracking Link Copied', `Customer tracking link for #${orderNumber} copied to clipboard.`);
+      })
+      .catch(() => {
+        toast.info('Customer Tracking URL', fullUrl);
+      });
   };
 
   return (
@@ -138,12 +155,24 @@ export const OrderHistoryPage = () => {
                       {formatINR(order.pricing?.totalCost)}
                     </td>
                     <td className="py-3.5 px-6 text-right">
-                      <Link
-                        to={`/orders/${order._id}`}
-                        className="text-xs font-semibold text-brand-600 hover:text-brand-800 inline-flex items-center gap-1"
-                      >
-                        Track <ArrowUpRight className="w-3.5 h-3.5" />
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        {order.trackingToken && order.status !== 'delivered' && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyTrackingLink(order.trackingToken, order.orderNumber)}
+                            title="Copy customer tracking URL"
+                            className="text-xs font-semibold text-brand-600 hover:text-brand-800 hover:bg-brand-50 p-1.5 rounded transition-colors inline-flex items-center gap-1"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <Link
+                          to={`/orders/${order._id}`}
+                          className="text-xs font-semibold text-brand-600 hover:text-brand-800 inline-flex items-center gap-1"
+                        >
+                          Track <ArrowUpRight className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

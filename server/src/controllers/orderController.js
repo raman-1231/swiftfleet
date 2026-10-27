@@ -5,6 +5,7 @@ const { dispatchOrderOffer, clearOrderTimer } = require('../services/matchingSer
 const socketService = require('../services/socketService');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const { encrypt, generateDeliveryPin, generateTrackingToken } = require('../utils/crypto');
 
 // Cryptographically secure generator for human-readable order references like SWF-74291
 function generateOrderNumber() {
@@ -54,15 +55,21 @@ exports.createOrder = async (req, res, next) => {
     });
 
     const orderNumber = generateOrderNumber();
-    const rawHandoverPin = crypto.randomInt(1000, 10000).toString();
+    const trackingToken = generateTrackingToken();
+    const rawHandoverPin = generateDeliveryPin();
     const handoverPinHash = await bcrypt.hash(rawHandoverPin, 10);
+    const handoverPinEncrypted = encrypt(rawHandoverPin);
+    const handoverPinExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes default expiry
 
     const order = await Order.create({
       orderNumber,
+      trackingToken,
       businessId: req.user._id,
       status: 'created',
-      handoverPin: rawHandoverPin,
+      handoverPinEncrypted,
       handoverPinHash,
+      handoverPinExpiresAt,
+      handoverPinLastGeneratedAt: new Date(),
       pickup: {
         address: pickup.address,
         pincode: pickup.pincode || '',
@@ -109,6 +116,9 @@ exports.createOrder = async (req, res, next) => {
 
     const orderObj = order.toObject();
     delete orderObj.handoverPinHash;
+    delete orderObj.handoverPinEncrypted;
+    delete orderObj.handoverPin;
+    orderObj.trackingUrl = order.trackingToken ? `/track/${order.trackingToken}` : '';
 
     // Notify administrators and order listeners
     socketService.emitToRole('admin', 'new_order_created', { order: orderObj });
@@ -164,12 +174,10 @@ exports.getOrders = async (req, res, next) => {
 
     const sanitizedOrders = orders.map((o) => {
       const obj = o.toObject();
-      if (req.user.role === 'partner') {
-        delete obj.handoverPin;
-        delete obj.handoverPinHash;
-      } else {
-        delete obj.handoverPinHash;
-      }
+      delete obj.handoverPin;
+      delete obj.handoverPinHash;
+      delete obj.handoverPinEncrypted;
+      obj.trackingUrl = obj.trackingToken ? `/track/${obj.trackingToken}` : '';
       return obj;
     });
 
@@ -222,12 +230,10 @@ exports.getOrderById = async (req, res, next) => {
     }
 
     const orderObj = order.toObject();
-    if (req.user.role === 'partner') {
-      delete orderObj.handoverPin;
-      delete orderObj.handoverPinHash;
-    } else {
-      delete orderObj.handoverPinHash;
-    }
+    delete orderObj.handoverPin;
+    delete orderObj.handoverPinHash;
+    delete orderObj.handoverPinEncrypted;
+    orderObj.trackingUrl = orderObj.trackingToken ? `/track/${orderObj.trackingToken}` : '';
 
     res.json(orderObj);
   } catch (error) {

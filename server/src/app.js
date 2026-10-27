@@ -13,6 +13,7 @@ const dispatchRoutes = require('./routes/dispatchRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const earningsRoutes = require('./routes/earningsRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const trackingRoutes = require('./routes/trackingRoutes');
 
 const app = express();
 
@@ -84,6 +85,7 @@ app.use('/api/dispatch', dispatchRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/earnings', earningsRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 // Fallback to client index.html for SPA client-side routing
 app.get('*', (req, res, next) => {
