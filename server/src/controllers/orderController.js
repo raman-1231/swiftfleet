@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const PartnerProfile = require('../models/PartnerProfile');
 const { calculateDeliveryQuote } = require('../services/pricingService');
@@ -197,7 +198,12 @@ exports.getOrders = async (req, res, next) => {
 
 exports.getOrderById = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id)
+    const isOrderNumber = typeof req.params.id === 'string' && /^SWF-[\w-]+$/i.test(req.params.id.trim());
+    const query = isOrderNumber
+      ? Order.findOne({ orderNumber: req.params.id.trim().toUpperCase() })
+      : Order.findById(req.params.id);
+
+    const order = await query
       .populate('businessId', 'name email phone')
       .populate('assignedPartnerId', 'name phone email')
       .populate('offeredPartnerId', 'name phone')
@@ -236,7 +242,14 @@ exports.getOrderById = async (req, res, next) => {
 
     // Disclose customer tracking token exclusively to verified merchant owner and admin
     if (req.user.role === 'business' || req.user.role === 'admin') {
-      orderObj.trackingUrl = orderObj.trackingToken ? `/track/${orderObj.trackingToken}` : '';
+      // Auto-backfill on-demand if an eligible order is missing its tracking token
+      if (!order.trackingToken && !['draft', 'cancelled', 'expired'].includes(order.status)) {
+        const generatedToken = generateTrackingToken();
+        order.trackingToken = generatedToken;
+        await Order.updateOne({ _id: order._id }, { $set: { trackingToken: generatedToken } });
+      }
+      orderObj.trackingToken = order.trackingToken;
+      orderObj.trackingUrl = order.trackingToken ? `/track/${order.trackingToken}` : '';
     } else {
       delete orderObj.trackingToken;
       delete orderObj.trackingUrl;

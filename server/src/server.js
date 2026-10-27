@@ -9,6 +9,7 @@ const BusinessProfile = require('./models/BusinessProfile');
 const Order = require('./models/Order');
 const EarningsLedger = require('./models/EarningsLedger');
 const { seedDatabase } = require('./seed/seedRunner');
+const { backfillTrackingTokens } = require('./utils/backfillTrackingTokens');
 const { recoverStaleOffers, startStaleOfferSweep, stopStaleOfferSweep } = require('./services/matchingService');
 
 const server = http.createServer(app);
@@ -46,6 +47,16 @@ async function startServer() {
       console.log('ℹ️ [Server Boot] Production mode active with zero users. Auto-seeding is disabled (merchants & couriers must register organically).');
     } else {
       console.log(`📊 [Server Boot] Database connected with ${userCount} existing records.`);
+    }
+
+    // Safe, idempotent migration: backfill missing tracking tokens for eligible existing orders
+    try {
+      const backfillReport = await backfillTrackingTokens({ dryRun: false });
+      if (backfillReport.ordersUpdated > 0) {
+        console.log(`📦 [Server Boot] Backfilled tracking tokens for ${backfillReport.ordersUpdated} eligible existing orders.`);
+      }
+    } catch (migErr) {
+      console.warn('⚠️ [Server Boot] Tracking token backfill notice:', migErr.message);
     }
 
     server.listen(env.PORT, () => {

@@ -9,6 +9,7 @@ const EarningsLedger = require('../models/EarningsLedger');
 const AuditLog = require('../models/AuditLog');
 const env = require('../config/env');
 const { calculateDeliveryQuote } = require('../services/pricingService');
+const { backfillTrackingTokens } = require('../utils/backfillTrackingTokens');
 
 describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
   let businessToken;
@@ -1484,6 +1485,176 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
         .set('Authorization', `Bearer ${approvedPartnerToken}`)
         .send({ orderId: trackingOrder._id, targetStatus: 'delivered', handoverPin: validPin });
       expect(secondDelivery.body.message).toMatch(/already.*delivered/i);
+    });
+  });
+
+  describe('12. Existing Orders Backfill Migration & Tracking Link Accessibility', () => {
+    let testAdminToken;
+
+    beforeAll(async () => {
+      const adminUser = await User.create({
+        name: 'Super Admin',
+        email: `admin_${Date.now()}@swiftfleet.io`,
+        password: 'Password123!',
+        role: 'admin',
+        phone: '+91 98110 00099'
+      });
+      const jwt = require('jsonwebtoken');
+      testAdminToken = jwt.sign(
+        { id: adminUser._id, role: 'admin', email: adminUser.email },
+        env.JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+    });
+
+    it('safely backfills eligible orders missing tokens and preserves existing valid tokens', async () => {
+      // 1. Existing order WITH a valid tracking token
+      const existingToken = 'existing_valid_token_1234567890abcdef';
+      const orderWithToken = await Order.create({
+        orderNumber: `SWF-${Math.floor(10000 + Math.random() * 90000)}`,
+        businessId,
+        status: 'assigned',
+        assignedPartnerId: approvedPartnerId,
+        trackingToken: existingToken,
+        pickup: { address: 'CP Delhi', coordinates: [77.21, 28.63], contactName: 'M' },
+        dropoff: { address: 'Noida', coordinates: [77.32, 28.57], contactName: 'C', phone: '+91 98110 00000' },
+        packageDetails: { category: 'general', weightKg: 1 },
+        pricing: { baseFare: 40, distanceKm: 5, distanceCost: 60, totalCost: 100, partnerPayout: 78 },
+        estimatedDurationMins: 20
+      });
+
+      // 2. Existing eligible order MISSING a tracking token (e.g. SWF-34039 scenario)
+      const orderMissingToken = await Order.create({
+        orderNumber: 'SWF-34039',
+        businessId,
+        status: 'picked_up', // In Transit
+        assignedPartnerId: approvedPartnerId,
+        pickup: { address: 'CP Delhi', coordinates: [77.21, 28.63], contactName: 'M' },
+        dropoff: { address: 'Gurugram', coordinates: [77.03, 28.45], contactName: 'C', phone: '+91 98110 00001' },
+        packageDetails: { category: 'groceries', weightKg: 2 },
+        pricing: { baseFare: 40, distanceKm: 10, distanceCost: 120, totalCost: 160, partnerPayout: 124 },
+        estimatedDurationMins: 30
+      });
+      // Remove trackingToken that pre('save') might have set
+      await Order.updateOne({ _id: orderMissingToken._id }, { $unset: { trackingToken: '' } });
+
+      // 3. Existing ineligible orders (cancelled, expired, draft) missing tokens
+      const cancelledOrder = await Order.create({
+        orderNumber: `SWF-${Math.floor(10000 + Math.random() * 90000)}`,
+        businessId,
+        status: 'cancelled',
+        pickup: { address: 'CP Delhi', coordinates: [77.21, 28.63], contactName: 'M' },
+        dropoff: { address: 'Delhi', coordinates: [77.22, 28.64], contactName: 'C', phone: '+91 98110 00002' },
+        packageDetails: { category: 'documents', weightKg: 0.5 },
+        pricing: { baseFare: 40, distanceKm: 2, distanceCost: 24, totalCost: 64, partnerPayout: 50 },
+        estimatedDurationMins: 10
+      });
+      await Order.updateOne({ _id: cancelledOrder._id }, { $unset: { trackingToken: '' } });
+
+      // First run in dry-run mode: reports eligible, updated (simulated), skipped
+      const dryRunReport = await backfillTrackingTokens({ dryRun: true });
+      expect(dryRunReport.dryRun).toBe(true);
+      expect(dryRunReport.eligibleOrders).toBeGreaterThanOrEqual(2);
+      expect(dryRunReport.alreadyHasToken).toBeGreaterThanOrEqual(1);
+      expect(dryRunReport.ineligibleSkipped).toBeGreaterThanOrEqual(1);
+      expect(dryRunReport.failedOrders).toBe(0);
+
+      // Check DB: in dry-run, orderMissingToken still has NO token
+      const dryCheck = await Order.findById(orderMissingToken._id);
+      expect(dryCheck.trackingToken).toBeUndefined();
+
+      // Run live migration
+      const liveReport = await backfillTrackingTokens({ dryRun: false });
+      expect(liveReport.dryRun).toBe(false);
+      expect(liveReport.ordersUpdated).toBeGreaterThanOrEqual(1);
+      expect(liveReport.failedOrders).toBe(0);
+
+      // Check DB: orderMissingToken now has a valid 48-char hex token
+      const updatedOrder = await Order.findById(orderMissingToken._id);
+      expect(updatedOrder.trackingToken).toBeDefined();
+      expect(updatedOrder.trackingToken.length).toBeGreaterThanOrEqual(32);
+
+      // Check DB: orderWithToken still has its ORIGINAL token (never overwritten!)
+      const preservedOrder = await Order.findById(orderWithToken._id);
+      expect(preservedOrder.trackingToken).toBe(existingToken);
+
+      // Check DB: cancelled order was skipped and received NO token
+      const checkCancelled = await Order.findById(cancelledOrder._id);
+      expect(checkCancelled.trackingToken).toBeUndefined();
+
+      // Run second time: idempotent, 0 updates!
+      const secondReport = await backfillTrackingTokens({ dryRun: false });
+      expect(secondReport.ordersUpdated).toBe(0);
+      expect(secondReport.tokensGenerated).toBe(0);
+
+      // Token uniqueness: updated token != existing token
+      expect(updatedOrder.trackingToken).not.toBe(existingToken);
+
+      // Business owner can retrieve trackingToken and trackingUrl via GET /api/orders/:id and by orderNumber
+      const bizView = await request(app)
+        .get(`/api/orders/${orderMissingToken._id}`)
+        .set('Authorization', `Bearer ${businessToken}`);
+      expect(bizView.status).toBe(200);
+      expect(bizView.body.trackingToken).toBe(updatedOrder.trackingToken);
+      expect(bizView.body.trackingUrl).toBe(`/track/${updatedOrder.trackingToken}`);
+
+      const bizViewByOrderNumber = await request(app)
+        .get(`/api/orders/SWF-34039`)
+        .set('Authorization', `Bearer ${businessToken}`);
+      expect(bizViewByOrderNumber.status).toBe(200);
+      expect(bizViewByOrderNumber.body.trackingToken).toBe(updatedOrder.trackingToken);
+
+      // Admin can also view the tracking link
+      const adminView = await request(app)
+        .get(`/api/orders/${orderMissingToken._id}`)
+        .set('Authorization', `Bearer ${testAdminToken}`);
+      expect(adminView.status).toBe(200);
+      expect(adminView.body.trackingToken).toBe(updatedOrder.trackingToken);
+
+      // Courier partner NEVER sees trackingToken or trackingUrl
+      const partnerView = await request(app)
+        .get(`/api/orders/${orderMissingToken._id}`)
+        .set('Authorization', `Bearer ${approvedPartnerToken}`);
+      expect(partnerView.status).toBe(200);
+      expect(partnerView.body.trackingToken).toBeUndefined();
+      expect(partnerView.body.trackingUrl).toBeUndefined();
+
+      // Guest customer tracking works without login via GET /api/tracking/:token
+      const guestView = await request(app)
+        .get(`/api/tracking/${updatedOrder.trackingToken}`);
+      expect(guestView.status).toBe(200);
+      expect(guestView.body.order.orderNumber).toBe('SWF-34039');
+      expect(guestView.body.order.status).toBe('picked_up');
+      expect(guestView.body.order.dropoff.address).toBe('Gurugram');
+      expect(guestView.body.order.dropoff.phone).toContain('••••'); // Masked for privacy
+    });
+
+    it('on-demand backfills tracking token in getOrderById if order was created without one', async () => {
+      const legacyOrder = await Order.create({
+        orderNumber: `SWF-${Math.floor(10000 + Math.random() * 90000)}`,
+        businessId,
+        status: 'assigned',
+        assignedPartnerId: approvedPartnerId,
+        pickup: { address: 'CP Delhi', coordinates: [77.21, 28.63], contactName: 'M' },
+        dropoff: { address: 'Delhi', coordinates: [77.22, 28.64], contactName: 'C', phone: '+91 98110 00003' },
+        packageDetails: { category: 'food_beverage', weightKg: 1 },
+        pricing: { baseFare: 40, distanceKm: 2, distanceCost: 24, totalCost: 64, partnerPayout: 50 },
+        estimatedDurationMins: 15
+      });
+      await Order.updateOne({ _id: legacyOrder._id }, { $unset: { trackingToken: '' } });
+
+      // Business owner fetches the legacy order
+      const res = await request(app)
+        .get(`/api/orders/${legacyOrder._id}`)
+        .set('Authorization', `Bearer ${businessToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.trackingToken).toBeDefined();
+      expect(res.body.trackingToken.length).toBeGreaterThanOrEqual(32);
+      expect(res.body.trackingUrl).toBe(`/track/${res.body.trackingToken}`);
+
+      // DB persisted the backfilled token
+      const dbCheck = await Order.findById(legacyOrder._id);
+      expect(dbCheck.trackingToken).toBe(res.body.trackingToken);
     });
   });
 });

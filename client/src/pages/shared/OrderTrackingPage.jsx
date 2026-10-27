@@ -140,11 +140,13 @@ export const OrderTrackingPage = () => {
   }
 
   const isCancellable = ['created', 'offered', 'assigned'].includes(order.status);
+  const orderBusinessId = order.businessId?._id || order.businessId?.id || order.businessId;
+  const currentUserId = user?._id || user?.id;
   const isMerchantOwner = user?.role === 'business' && (
-    String(order.businessId?._id || order.businessId) === String(user?._id || user?.id)
+    !orderBusinessId || String(orderBusinessId) === String(currentUserId)
   );
   const canCancel = isCancellable && (user?.role === 'admin' || isMerchantOwner);
-  const canViewCustomerLink = (isMerchantOwner || user?.role === 'admin') && order.trackingToken && order.status !== 'delivered';
+  const canViewCustomerLink = (isMerchantOwner || user?.role === 'admin') && Boolean(order.trackingToken);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -228,34 +230,46 @@ export const OrderTrackingPage = () => {
                 size="sm"
                 onClick={() => {
                   const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
-                  navigator.clipboard.writeText(fullUrl)
-                    .then(() => toast.success('Tracking Link Copied', 'Customer tracking link copied to clipboard.'))
-                    .catch(() => toast.info('Customer Tracking URL', fullUrl));
+                  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(fullUrl)
+                      .then(() => toast.success('Tracking Link Copied', 'Customer tracking link copied to clipboard.'))
+                      .catch(() => toast.info('Customer Tracking URL', fullUrl));
+                  } else {
+                    toast.info('Customer Tracking URL', fullUrl);
+                  }
                 }}
                 leftIcon={<Copy className="w-3.5 h-3.5" />}
                 className="flex-1 sm:flex-none shadow-sm"
               >
                 Copy Link
               </Button>
-              {typeof navigator !== 'undefined' && navigator.share && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
+                  if (typeof navigator !== 'undefined' && navigator.share) {
                     navigator.share({
                       title: `Track SwiftFleet Delivery #${order.orderNumber}`,
                       text: `Track your package delivery live from ${order.businessId?.name || 'Store'} on SwiftFleet:`,
                       url: fullUrl
                     }).catch(() => {});
-                  }}
-                  leftIcon={<Share2 className="w-3.5 h-3.5" />}
-                  className="bg-white hover:bg-brand-50 border-brand-200"
-                  title="Share via device share menu"
-                >
-                  Share
-                </Button>
-              )}
+                  } else {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                      navigator.clipboard.writeText(fullUrl)
+                        .then(() => toast.info('Share via Link', 'Tracking URL copied to clipboard (native share unavailable on this device).'))
+                        .catch(() => toast.info('Customer Tracking URL', fullUrl));
+                    } else {
+                      toast.info('Customer Tracking URL', fullUrl);
+                    }
+                  }
+                }}
+                leftIcon={<Share2 className="w-3.5 h-3.5" />}
+                className="bg-white hover:bg-brand-50 border-brand-200"
+                title="Share via device share menu or copy link"
+              >
+                Share
+              </Button>
             </div>
           </div>
         </div>
