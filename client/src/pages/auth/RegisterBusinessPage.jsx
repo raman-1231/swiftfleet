@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { Building2, Mail, Lock, Phone, MapPin, Store, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Building2, Mail, Lock, Phone, MapPin, Store, ArrowRight, Eye, EyeOff, Bike } from 'lucide-react';
 
 export const RegisterBusinessPage = () => {
   const { registerBusiness } = useAuth();
@@ -100,6 +100,21 @@ export const RegisterBusinessPage = () => {
           <p className="text-xs text-ink-500 mt-1">
             Access automated dispatch and verified courier workforce on demand
           </p>
+        </div>
+
+        {/* Onboarding Flow Selector Tabs */}
+        <div className="grid grid-cols-2 p-1 bg-ink-100 rounded-xl border border-ink-200 shadow-sm">
+          <div className="py-2 px-3 text-xs font-bold rounded-lg bg-white text-brand-700 shadow-sm flex items-center justify-center gap-1.5 border border-ink-100">
+            <Building2 className="w-3.5 h-3.5 text-brand-500" />
+            <span>Business Merchant</span>
+          </div>
+          <Link
+            to="/register-partner"
+            className="py-2 px-3 text-xs font-semibold rounded-lg text-ink-600 hover:text-ink-950 hover:bg-white/60 flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Bike className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Courier Partner</span>
+          </Link>
         </div>
 
         {/* Demo Quick-Fill Helper (Dev Only) */}
@@ -325,11 +340,19 @@ export const RegisterBusinessPage = () => {
             </Button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-ink-100 text-center text-xs text-ink-600">
-            <span>Already have an account? </span>
-            <Link to="/login" className="text-brand-600 font-semibold hover:underline">
-              Sign In
-            </Link>
+          <div className="mt-6 pt-4 border-t border-ink-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-ink-600">
+            <div>
+              <span>Looking to deliver? </span>
+              <Link to="/register-partner" className="text-emerald-700 font-semibold hover:underline">
+                Apply as Courier Partner
+              </Link>
+            </div>
+            <div>
+              <span>Already registered? </span>
+              <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+                Sign In
+              </Link>
+            </div>
           </div>
         </Card>
       </div>

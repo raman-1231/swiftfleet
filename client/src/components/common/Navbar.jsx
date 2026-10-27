@@ -21,7 +21,9 @@ import {
   AlertOctagon,
   FileText,
   Menu,
-  X
+  X,
+  MapPin,
+  Package
 } from 'lucide-react';
 
 export const Navbar = () => {
@@ -442,7 +444,18 @@ export const Navbar = () => {
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Link
+                  to="/track"
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 ${
+                    isActive('/track')
+                      ? 'bg-brand-50 text-brand-700'
+                      : 'text-brand-600 hover:text-brand-800 hover:bg-brand-50/70'
+                  }`}
+                >
+                  <MapPin className="w-4 h-4 text-brand-500" />
+                  <span>Track Order</span>
+                </Link>
                 <Link
                   to="/login"
                   className="px-3.5 py-1.5 rounded-lg text-sm font-medium text-ink-700 hover:text-ink-900 hover:bg-ink-100 transition-colors"
@@ -681,21 +694,35 @@ export const Navbar = () => {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="space-y-2 pt-1">
                 <Link
-                  to="/login"
+                  to="/track"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="text-center py-2 rounded-lg border border-ink-200 text-xs font-medium text-ink-700 hover:bg-ink-50"
+                  className={`w-full py-2.5 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-2 transition-colors ${
+                    isActive('/track')
+                      ? 'bg-brand-50 border-brand-300 text-brand-700'
+                      : 'border-brand-200 bg-brand-50/70 text-brand-700 hover:bg-brand-100'
+                  }`}
                 >
-                  Sign In
+                  <MapPin className="w-4 h-4 text-brand-500" />
+                  <span>Track Delivery Order</span>
                 </Link>
-                <Link
-                  to="/register-business"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-center py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold hover:bg-brand-600"
-                >
-                  Get Started
-                </Link>
+                <div className="grid grid-cols-2 gap-2">
+                  <Link
+                    to="/login"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-center py-2 rounded-lg border border-ink-200 text-xs font-medium text-ink-700 hover:bg-ink-50 transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    to="/register-business"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-center py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold hover:bg-brand-600 transition-colors shadow-subtle"
+                  >
+                    Get Started
+                  </Link>
+                </div>
               </div>
             )}
           </div>

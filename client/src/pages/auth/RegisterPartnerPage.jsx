@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { Bike, ShieldCheck, FileCheck, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Bike, ShieldCheck, FileCheck, ArrowRight, CheckCircle2, AlertCircle, Eye, EyeOff, Building2 } from 'lucide-react';
 
 export const RegisterPartnerPage = () => {
   const { registerPartner } = useAuth();
@@ -104,6 +104,21 @@ export const RegisterPartnerPage = () => {
           <p className="text-xs text-ink-500 mt-1">
             Join the verified crowdsourced fleet with guaranteed 78% order payouts
           </p>
+        </div>
+
+        {/* Onboarding Flow Selector Tabs */}
+        <div className="grid grid-cols-2 p-1 bg-ink-100 rounded-xl border border-ink-200 shadow-sm">
+          <Link
+            to="/register-business"
+            className="py-2 px-3 text-xs font-semibold rounded-lg text-ink-600 hover:text-ink-950 hover:bg-white/60 flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <Building2 className="w-3.5 h-3.5 text-brand-500" />
+            <span>Business Merchant</span>
+          </Link>
+          <div className="py-2 px-3 text-xs font-bold rounded-lg bg-white text-emerald-800 shadow-sm flex items-center justify-center gap-1.5 border border-ink-100">
+            <Bike className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Courier Partner</span>
+          </div>
         </div>
 
         {/* Multi-step progress indicator */}
@@ -343,11 +358,19 @@ export const RegisterPartnerPage = () => {
             </form>
           )}
 
-          <div className="mt-6 pt-4 border-t border-ink-100 text-center text-xs text-ink-600">
-            <span>Already registered as a courier? </span>
-            <Link to="/login" className="text-brand-600 font-semibold hover:underline">
-              Sign In
-            </Link>
+          <div className="mt-6 pt-4 border-t border-ink-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-ink-600">
+            <div>
+              <span>Registering a business? </span>
+              <Link to="/register-business" className="text-brand-600 font-semibold hover:underline">
+                Create Merchant Account
+              </Link>
+            </div>
+            <div>
+              <span>Already registered? </span>
+              <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+                Sign In
+              </Link>
+            </div>
           </div>
         </Card>
       </div>

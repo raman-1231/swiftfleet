@@ -149,15 +149,23 @@ export const LoginPage = () => {
             </Button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-ink-100 text-center text-xs text-ink-600">
-            <span>New to SwiftFleet? </span>
-            <Link to="/register-business" className="text-brand-600 font-semibold hover:underline">
-              Register Business
-            </Link>
-            <span className="mx-1.5">•</span>
-            <Link to="/register-partner" className="text-emerald-700 font-semibold hover:underline">
-              Join as Courier
-            </Link>
+          <div className="mt-6 pt-4 border-t border-ink-100 text-center text-xs text-ink-600 space-y-2">
+            <div>
+              <span>New to SwiftFleet? </span>
+              <Link to="/register-business" className="text-brand-600 font-semibold hover:underline">
+                Register Business
+              </Link>
+              <span className="mx-1.5">•</span>
+              <Link to="/register-partner" className="text-emerald-700 font-semibold hover:underline">
+                Join as Courier
+              </Link>
+            </div>
+            <div className="pt-1.5 border-t border-ink-100 text-[11px]">
+              <span className="text-ink-500">Expecting a package? </span>
+              <Link to="/track" className="text-brand-600 font-semibold hover:underline">
+                Track Order without Sign-in
+              </Link>
+            </div>
           </div>
         </Card>
       </div>

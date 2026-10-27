@@ -33,6 +33,7 @@ import { AuditLogsPage } from './pages/admin/AuditLogsPage';
 // Shared Pages
 import { OrderTrackingPage } from './pages/shared/OrderTrackingPage';
 import { CustomerTrackingPage } from './pages/public/CustomerTrackingPage';
+import { TrackOrderLookupPage } from './pages/public/TrackOrderLookupPage';
 
 // Route Guards
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -76,6 +77,7 @@ export default function App() {
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/register-business" element={<RegisterBusinessPage />} />
                   <Route path="/register-partner" element={<RegisterPartnerPage />} />
+                  <Route path="/track" element={<TrackOrderLookupPage />} />
                   <Route path="/track/:token" element={<CustomerTrackingPage />} />
 
                   {/* Business Routes */}

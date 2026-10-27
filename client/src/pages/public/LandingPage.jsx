@@ -58,7 +58,7 @@ export const LandingPage = () => {
               </p>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-2">
                 <Link to="/register-business">
                   <Button size="lg" variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>
                     Onboard as Business Merchant
@@ -67,6 +67,16 @@ export const LandingPage = () => {
                 <Link to="/register-partner">
                   <Button size="lg" variant="outline" leftIcon={<Bike className="w-4 h-4 text-brand-500" />}>
                     Apply as Delivery Partner
+                  </Button>
+                </Link>
+                <Link to="/track">
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    leftIcon={<MapPin className="w-4 h-4 text-brand-600" />}
+                    className="bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200"
+                  >
+                    Track Package
                   </Button>
                 </Link>
               </div>
@@ -350,7 +360,11 @@ export const LandingPage = () => {
               <span className="font-bold text-lg tracking-tight">SwiftFleet</span>
               <span className="text-xs text-ink-400 font-mono ml-2">v1.0.0-production-spec</span>
             </div>
-            <div className="flex items-center gap-6 text-xs text-ink-400">
+            <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-ink-400">
+              <Link to="/track" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5" />
+                <span>Track Order</span>
+              </Link>
               <Link to="/login" className="hover:text-white transition-colors">Sign In</Link>
               <Link to="/register-business" className="hover:text-white transition-colors">Business Onboarding</Link>
               <Link to="/register-partner" className="hover:text-white transition-colors">Courier Verification</Link>
