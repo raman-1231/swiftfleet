@@ -233,7 +233,14 @@ exports.getOrderById = async (req, res, next) => {
     delete orderObj.handoverPin;
     delete orderObj.handoverPinHash;
     delete orderObj.handoverPinEncrypted;
-    orderObj.trackingUrl = orderObj.trackingToken ? `/track/${orderObj.trackingToken}` : '';
+
+    // Disclose customer tracking token exclusively to verified merchant owner and admin
+    if (req.user.role === 'business' || req.user.role === 'admin') {
+      orderObj.trackingUrl = orderObj.trackingToken ? `/track/${orderObj.trackingToken}` : '';
+    } else {
+      delete orderObj.trackingToken;
+      delete orderObj.trackingUrl;
+    }
 
     res.json(orderObj);
   } catch (error) {

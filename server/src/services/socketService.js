@@ -229,6 +229,8 @@ function sanitizeOrder(order, { allowPin = false } = {}) {
   if (!allowPin) {
     delete obj.handoverPin;
   }
+  delete obj.trackingToken;
+  delete obj.trackingUrl;
   return obj;
 }
 

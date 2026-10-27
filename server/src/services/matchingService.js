@@ -109,10 +109,13 @@ async function dispatchOrderOffer(orderId) {
 
     console.log(`🚀 [Dispatch] Order ${updatedOrder.orderNumber} offered to ${targetCourier.userId.name} (Expires in ${env.OFFER_TIMEOUT_SECONDS}s)`);
 
-    // Notify the target partner with delivery offer card payload (sanitized to remove handover PIN)
+    // Notify the target partner with delivery offer card payload (sanitized to remove handover PIN and tracking token)
     const courierSafeOfferOrder = typeof updatedOrder.toObject === 'function' ? updatedOrder.toObject() : JSON.parse(JSON.stringify(updatedOrder));
     delete courierSafeOfferOrder.handoverPin;
     delete courierSafeOfferOrder.handoverPinHash;
+    delete courierSafeOfferOrder.handoverPinEncrypted;
+    delete courierSafeOfferOrder.trackingToken;
+    delete courierSafeOfferOrder.trackingUrl;
 
     socketService.emitToUser(targetCourier.userId._id, 'order_offered', {
       order: courierSafeOfferOrder,

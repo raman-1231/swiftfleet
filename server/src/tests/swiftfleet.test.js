@@ -845,15 +845,17 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
         handoverPin: '9182'
       });
 
-      // Courier view: never exposes PIN
+      // Courier view: never exposes PIN or tracking token
       const courierView = await request(app)
         .get(`/api/orders/${orderWithPin._id}`)
         .set('Authorization', `Bearer ${approvedPartnerToken}`);
       expect(courierView.status).toBe(200);
       expect(courierView.body.handoverPin).toBeUndefined();
       expect(courierView.body.handoverPinHash).toBeUndefined();
+      expect(courierView.body.trackingToken).toBeUndefined();
+      expect(courierView.body.trackingUrl).toBeUndefined();
 
-      // Merchant owner view: never exposes PIN directly (only shares tracking link)
+      // Merchant owner view: never exposes PIN directly (discloses tracking link to share with recipient)
       const merchantView = await request(app)
         .get(`/api/orders/${orderWithPin._id}`)
         .set('Authorization', `Bearer ${businessToken}`);
@@ -861,6 +863,7 @@ describe('SwiftFleet Core Architecture & Business Logic Test Suite', () => {
       expect(merchantView.body.handoverPin).toBeUndefined();
       expect(merchantView.body.handoverPinHash).toBeUndefined();
       expect(merchantView.body.trackingToken).toBeDefined();
+      expect(merchantView.body.trackingUrl).toBe(`/track/${orderWithPin.trackingToken}`);
 
       // Customer view via secure unguessable tracking token: discloses valid active PIN
       const customerTracking = await request(app)

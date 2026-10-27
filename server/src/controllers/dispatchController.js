@@ -197,9 +197,16 @@ exports.acceptOffer = async (req, res, next) => {
 
     console.log(`✅ [Dispatch] Order ${updatedOrder.orderNumber} successfully accepted by ${req.user.name}`);
 
+    const courierSafeOrder = typeof updatedOrder.toObject === 'function' ? updatedOrder.toObject() : JSON.parse(JSON.stringify(updatedOrder));
+    delete courierSafeOrder.handoverPin;
+    delete courierSafeOrder.handoverPinHash;
+    delete courierSafeOrder.handoverPinEncrypted;
+    delete courierSafeOrder.trackingToken;
+    delete courierSafeOrder.trackingUrl;
+
     res.json({
       message: 'Delivery offer successfully accepted.',
-      order: updatedOrder
+      order: courierSafeOrder
     });
   } catch (error) {
     next(error);
@@ -463,9 +470,16 @@ exports.updateDeliveryState = async (req, res, next) => {
       message: noteText
     });
 
+    const courierSafeOrder = typeof order.toObject === 'function' ? order.toObject() : JSON.parse(JSON.stringify(order));
+    delete courierSafeOrder.handoverPin;
+    delete courierSafeOrder.handoverPinHash;
+    delete courierSafeOrder.handoverPinEncrypted;
+    delete courierSafeOrder.trackingToken;
+    delete courierSafeOrder.trackingUrl;
+
     res.json({
       message: `Delivery state updated to '${targetStatus}'.`,
-      order
+      order: courierSafeOrder
     });
   } catch (error) {
     next(error);

@@ -140,12 +140,11 @@ export const OrderTrackingPage = () => {
   }
 
   const isCancellable = ['created', 'offered', 'assigned'].includes(order.status);
-  const canCancel = isCancellable && (
-    user?.role === 'admin' ||
-    (user?.role === 'business' && (
-      String(order.businessId?._id || order.businessId) === String(user?._id || user?.id)
-    ))
+  const isMerchantOwner = user?.role === 'business' && (
+    String(order.businessId?._id || order.businessId) === String(user?._id || user?.id)
   );
+  const canCancel = isCancellable && (user?.role === 'admin' || isMerchantOwner);
+  const canViewCustomerLink = (isMerchantOwner || user?.role === 'admin') && order.trackingToken && order.status !== 'delivered';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -192,35 +191,73 @@ export const OrderTrackingPage = () => {
         </div>
       </div>
 
-      {/* Customer Tracking Link sharing card for business owner */}
-      {order.trackingToken && order.status !== 'delivered' && (
-        <div className="p-4 bg-brand-50 border border-brand-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-subtle">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold flex-shrink-0">
+      {/* Customer Tracking Link sharing card for business merchant owner & admin */}
+      {canViewCustomerLink && (
+        <div className="p-4 sm:p-5 bg-brand-50 border-2 border-brand-200 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-subtle animate-in fade-in">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold flex-shrink-0 mt-0.5 sm:mt-0 shadow-sm">
               <Share2 className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-brand-900">
-                Customer Delivery Tracking & PIN Link
-              </h4>
-              <p className="text-xs text-brand-700">
-                Share this secure link with your recipient. They can view live map progress and access their 6-digit handover PIN.
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-brand-900">
+                  Customer Delivery Tracking & PIN Link
+                </h4>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-brand-100 text-brand-800 border border-brand-200">
+                  Guest Accessible
+                </span>
+              </div>
+              <p className="text-xs text-brand-700 mt-0.5">
+                Share this secure link with your recipient. They can track live courier progress and view their 6-digit delivery PIN without logging in.
               </p>
             </div>
           </div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
-              navigator.clipboard.writeText(fullUrl)
-                .then(() => toast.success('Tracking Link Copied', 'Customer tracking link copied to clipboard.'))
-                .catch(() => toast.info('Customer Tracking URL', fullUrl));
-            }}
-            leftIcon={<Copy className="w-3.5 h-3.5" />}
-          >
-            Copy Customer Link
-          </Button>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:min-w-[380px]">
+            <input
+              type="text"
+              readOnly
+              value={`${window.location.origin}/track/${order.trackingToken}`}
+              onClick={(e) => e.target.select()}
+              className="text-xs font-mono bg-white border border-brand-300 rounded-xl px-3 py-2 text-ink-900 select-all truncate flex-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              title="Click to select customer tracking URL"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
+                  navigator.clipboard.writeText(fullUrl)
+                    .then(() => toast.success('Tracking Link Copied', 'Customer tracking link copied to clipboard.'))
+                    .catch(() => toast.info('Customer Tracking URL', fullUrl));
+                }}
+                leftIcon={<Copy className="w-3.5 h-3.5" />}
+                className="flex-1 sm:flex-none shadow-sm"
+              >
+                Copy Link
+              </Button>
+              {typeof navigator !== 'undefined' && navigator.share && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const fullUrl = `${window.location.origin}/track/${order.trackingToken}`;
+                    navigator.share({
+                      title: `Track SwiftFleet Delivery #${order.orderNumber}`,
+                      text: `Track your package delivery live from ${order.businessId?.name || 'Store'} on SwiftFleet:`,
+                      url: fullUrl
+                    }).catch(() => {});
+                  }}
+                  leftIcon={<Share2 className="w-3.5 h-3.5" />}
+                  className="bg-white hover:bg-brand-50 border-brand-200"
+                  title="Share via device share menu"
+                >
+                  Share
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
