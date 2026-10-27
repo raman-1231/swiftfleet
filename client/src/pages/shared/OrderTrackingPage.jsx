@@ -3,11 +3,13 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../../api/apiClient';
 import { useSocket } from '../../context/SocketContext';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { StatusBadge } from '../../components/common/Badge';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
 import { Modal } from '../../components/common/Modal';
+import { formatINR } from '../../utils/currency';
 import {
   Truck,
   MapPin,
@@ -17,13 +19,15 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowLeft,
-  Navigation
+  Navigation,
+  Lock
 } from 'lucide-react';
 
 export const OrderTrackingPage = () => {
   const { id } = useParams();
   const { socket } = useSocket();
   const { user } = useAuth();
+  const toast = useToast();
 
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,20 +67,25 @@ export const OrderTrackingPage = () => {
 
     socket.emit('join_order_room', { orderId: id });
 
-    socket.on('order_status_updated', (payload) => {
+    const handleOrderStatusUpdated = (payload) => {
       if (payload.orderId === id) {
         fetchOrder();
       }
-    });
+    };
 
-    socket.on('courier_location_updated', (loc) => {
+    const handleCourierLocationUpdated = (loc) => {
       if (loc.orderId === id) {
         setLiveCourierCoords({ lat: loc.lat, lng: loc.lng, updatedAt: loc.timestamp });
       }
-    });
+    };
+
+    socket.on('order_status_updated', handleOrderStatusUpdated);
+    socket.on('courier_location_updated', handleCourierLocationUpdated);
 
     return () => {
       socket.emit('leave_order_room', { orderId: id });
+      socket.off('order_status_updated', handleOrderStatusUpdated);
+      socket.off('courier_location_updated', handleCourierLocationUpdated);
     };
   }, [socket, id]);
 
@@ -84,10 +93,11 @@ export const OrderTrackingPage = () => {
     try {
       setIsActionLoading(true);
       await api.post(`/orders/${id}/cancel`, { reason: cancelReason });
+      toast.success('Order Cancelled', `Order #${order.orderNumber} has been successfully cancelled.`);
       setShowCancelModal(false);
       fetchOrder();
     } catch (err) {
-      alert(err.message);
+      toast.error('Cancellation Failed', err.message);
     } finally {
       setIsActionLoading(false);
     }
@@ -101,10 +111,11 @@ export const OrderTrackingPage = () => {
         reason: disputeReason,
         category: disputeCategory
       });
+      toast.success('Dispute Filed', 'Incident report registered in ops queue.');
       setShowDisputeModal(false);
       fetchOrder();
     } catch (err) {
-      alert(err.message);
+      toast.error('Failed to File Incident', err.message);
     } finally {
       setIsActionLoading(false);
     }
@@ -127,6 +138,12 @@ export const OrderTrackingPage = () => {
   }
 
   const isCancellable = ['created', 'offered', 'assigned'].includes(order.status);
+  const canCancel = isCancellable && (
+    user?.role === 'admin' ||
+    (user?.role === 'business' && (
+      String(order.businessId?._id || order.businessId) === String(user?._id || user?.id)
+    ))
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -151,7 +168,7 @@ export const OrderTrackingPage = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {isCancellable && (
+          {canCancel && (
             <Button
               variant="danger"
               size="sm"
@@ -173,6 +190,28 @@ export const OrderTrackingPage = () => {
         </div>
       </div>
 
+      {/* Handover PIN banner for merchant and customer authorization */}
+      {order.handoverPin && order.status !== 'delivered' && (
+        <div className="p-4 bg-brand-50 border-2 border-brand-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-subtle">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold flex-shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-brand-900">
+                Customer Delivery Handover PIN
+              </h4>
+              <p className="text-xs text-brand-700">
+                Provide this 4-digit code to your delivery courier upon package arrival to authenticate handoff.
+              </p>
+            </div>
+          </div>
+          <div className="font-mono text-2xl font-black tracking-widest text-brand-700 bg-white px-5 py-2 rounded-xl border border-brand-200 text-center shadow-sm">
+            {order.handoverPin}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Interactive Map & Live Position */}
         <div className="lg:col-span-7 space-y-6">
@@ -188,6 +227,7 @@ export const OrderTrackingPage = () => {
               pickupCoords={order.pickup?.coordinates}
               dropoffCoords={order.dropoff?.coordinates}
               courierCoords={liveCourierCoords}
+              lastLocationUpdate={liveCourierCoords?.updatedAt}
               pickupAddress={order.pickup?.address}
               dropoffAddress={order.dropoff?.address}
               courierName={order.assignedPartnerId?.name || 'Assigned Courier'}
@@ -195,19 +235,40 @@ export const OrderTrackingPage = () => {
             />
 
             {liveCourierCoords ? (
-              <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Live GPS coordinate lock active
-                </span>
-                <span className="font-mono text-[11px]">
-                  {liveCourierCoords.lat?.toFixed(4)}, {liveCourierCoords.lng?.toFixed(4)}
-                </span>
-              </div>
+              (() => {
+                const isStale = liveCourierCoords.updatedAt
+                  ? (Date.now() - new Date(liveCourierCoords.updatedAt).getTime() > 60000)
+                  : false;
+                const secondsAgo = liveCourierCoords.updatedAt
+                  ? Math.floor((Date.now() - new Date(liveCourierCoords.updatedAt).getTime()) / 1000)
+                  : 0;
+
+                return isStale ? (
+                  <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-900 flex items-center justify-between">
+                    <span className="flex items-center gap-2 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      ⚠️ Stale GPS Signal ({secondsAgo > 60 ? `${Math.floor(secondsAgo / 60)}m ago` : `${secondsAgo}s ago`}) — Telemetry may be delayed
+                    </span>
+                    <span className="font-mono text-[11px] text-amber-800">
+                      {liveCourierCoords.lat?.toFixed(4)}, {liveCourierCoords.lng?.toFixed(4)}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Live GPS coordinate lock active
+                    </span>
+                    <span className="font-mono text-[11px]">
+                      {liveCourierCoords.lat?.toFixed(4)}, {liveCourierCoords.lng?.toFixed(4)}
+                    </span>
+                  </div>
+                );
+              })()
             ) : (
               <div className="mt-3 p-2.5 bg-ink-50 rounded-lg text-xs text-ink-500 flex items-center justify-between">
                 <span>Waypoint Coordinates Locked</span>
-                <span className="font-mono text-[11px] text-ink-400">Road modeled 1.28x</span>
+                <span className="font-mono text-[11px] text-ink-400">Road modeled 1.30x</span>
               </div>
             )}
           </Card>
@@ -288,12 +349,12 @@ export const OrderTrackingPage = () => {
               <div className="flex justify-between text-ink-600">
                 <span>Total Delivery Fare:</span>
                 <span className="font-mono font-bold text-ink-900 text-sm">
-                  ${order.pricing?.totalCost?.toFixed(2)}
+                  {formatINR(order.pricing?.totalCost)}
                 </span>
               </div>
               <div className="flex justify-between text-[11px] text-emerald-800 bg-emerald-50 p-2 rounded-lg">
                 <span>Courier Earnings Allocation:</span>
-                <span className="font-mono font-bold">${order.pricing?.partnerPayout?.toFixed(2)}</span>
+                <span className="font-mono font-bold">{formatINR(order.pricing?.partnerPayout)}</span>
               </div>
             </div>
           </Card>

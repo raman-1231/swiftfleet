@@ -4,6 +4,7 @@ import { useSocket } from '../../context/SocketContext';
 import { Card } from '../../components/common/Card';
 import { StatusBadge } from '../../components/common/Badge';
 import L from 'leaflet';
+import { createTileLayer, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '../../config/mapConfig';
 import { Layers, Bike, Truck, RefreshCw, Radio } from 'lucide-react';
 
 export const FleetMonitoringPage = () => {
@@ -34,7 +35,7 @@ export const FleetMonitoringPage = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('fleet_location_updated', (data) => {
+    const handleFleetLocationUpdated = (data) => {
       setFleetData((prev) => {
         const couriers = [...prev.onlineCouriers];
         const idx = couriers.findIndex((c) => String(c.userId?._id) === String(data.partnerId));
@@ -49,14 +50,18 @@ export const FleetMonitoringPage = () => {
         }
         return { ...prev, onlineCouriers: couriers };
       });
-    });
+    };
 
-    socket.on('order_status_updated', () => {
+    const handleOrderStatusUpdated = () => {
       fetchFleet();
-    });
+    };
+
+    socket.on('fleet_location_updated', handleFleetLocationUpdated);
+    socket.on('order_status_updated', handleOrderStatusUpdated);
 
     return () => {
-      socket.off('fleet_location_updated');
+      socket.off('fleet_location_updated', handleFleetLocationUpdated);
+      socket.off('order_status_updated', handleOrderStatusUpdated);
     };
   }, [socket]);
 
@@ -66,16 +71,12 @@ export const FleetMonitoringPage = () => {
 
     if (!mapInstanceRef.current) {
       const map = L.map(mapRef.current, {
-        center: [40.7520, -73.9820], // Midtown NYC center
-        zoom: 14,
+        center: DEFAULT_MAP_CENTER, // India metropolitan center default
+        zoom: DEFAULT_MAP_ZOOM,
         zoomControl: true
       });
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 19
-      }).addTo(map);
+      createTileLayer().addTo(map);
 
       mapInstanceRef.current = map;
     }
@@ -88,16 +89,20 @@ export const FleetMonitoringPage = () => {
 
     const bounds = [];
 
-    // Draw Online Couriers
+    // Draw Online Couriers with Stale Telemetry Detection
     fleetData.onlineCouriers.forEach((courier) => {
       const coords = courier.currentCoordinates?.coordinates;
-      if (coords && coords.length === 2) {
+      if (coords && coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
         const [lng, lat] = coords;
+        const isStale = courier.lastLocationUpdate
+          ? (Date.now() - new Date(courier.lastLocationUpdate).getTime() > 120000)
+          : false;
+
         const icon = L.divIcon({
           className: 'courier-beacon',
           html: `
             <div style="
-              background-color: #3457E5;
+              background-color: ${isStale ? '#D97706' : '#059669'};
               width: 34px;
               height: 34px;
               border-radius: 50%;
@@ -106,8 +111,8 @@ export const FleetMonitoringPage = () => {
               justify-content: center;
               color: white;
               font-size: 14px;
-              border: 2px solid white;
-              box-shadow: 0 0 0 4px rgba(52, 87, 229, 0.3), 0 3px 6px rgba(0,0,0,0.3);
+              border: 2px ${isStale ? 'dashed #B45309' : 'solid white'};
+              box-shadow: ${isStale ? '0 2px 6px rgba(0,0,0,0.3)' : '0 0 0 4px rgba(16, 185, 129, 0.3), 0 3px 6px rgba(0,0,0,0.3)'};
             ">
               🛵
             </div>
@@ -119,9 +124,10 @@ export const FleetMonitoringPage = () => {
         const marker = L.marker([lat, lng], { icon })
           .addTo(map)
           .bindPopup(`
-            <strong>Courier: ${courier.userId?.name}</strong><br/>
-            Vehicle: ${courier.vehicleType}<br/>
-            Status: ${courier.isAvailable ? 'Available for dispatch' : 'Busy on active mission'}
+            <strong>Courier: ${courier.userId?.name || 'Verified Partner'}</strong><br/>
+            Vehicle: ${courier.vehicleType || 'Motorcycle'}<br/>
+            Status: ${courier.isAvailable ? 'Available for dispatch' : 'Busy on active mission'}<br/>
+            ${isStale ? '<span style="color:#B45309;font-weight:600;">⚠️ Stale GPS (&gt; 2 mins)</span>' : '<span style="color:#059669;font-weight:600;">🟢 Live Telemetry Beacon</span>'}
           `);
 
         markersRef.current.push(marker);
@@ -211,7 +217,7 @@ export const FleetMonitoringPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Full-width Map View */}
         <div className="lg:col-span-8">
-          <Card noPadding className="overflow-hidden h-[540px]">
+          <Card noPadding className="overflow-hidden h-[380px] sm:h-[480px] lg:h-[540px]">
             <div ref={mapRef} className="w-full h-full" />
           </Card>
         </div>

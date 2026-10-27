@@ -23,6 +23,14 @@ const earningsLedgerSchema = new mongoose.Schema(
       required: true,
       min: 0
     },
+    currency: {
+      type: String,
+      default: 'INR'
+    },
+    currencySymbol: {
+      type: String,
+      default: '₹'
+    },
     distanceKm: {
       type: Number,
       default: 0

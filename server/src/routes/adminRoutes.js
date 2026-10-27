@@ -9,6 +9,7 @@ router.use(requireRole('admin'));
 
 router.get('/metrics', adminController.getMetrics);
 router.get('/partners', adminController.getPartners);
+router.get('/partners/:partnerId/decrypt-kyc', adminController.decryptPartnerKYC);
 router.put('/partners/:partnerId/verify', adminController.reviewPartnerVerification);
 router.get('/fleet-live', adminController.getFleetLive);
 router.get('/disputes', adminController.getDisputes);

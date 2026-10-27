@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -6,8 +6,10 @@ import { useToast } from '../../context/ToastContext';
 import { api } from '../../api/apiClient';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Modal } from '../../components/common/Modal';
 import { StatusBadge } from '../../components/common/Badge';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
+import { formatINR } from '../../utils/currency';
 import confetti from 'canvas-confetti';
 import {
   Bike,
@@ -16,7 +18,7 @@ import {
   ShieldCheck,
   MapPin,
   Clock,
-  DollarSign,
+  IndianRupee,
   Package,
   Phone,
   Navigation,
@@ -24,12 +26,14 @@ import {
   AlertTriangle,
   ArrowRight,
   TrendingUp,
-  RefreshCw
+  RefreshCw,
+  Crosshair,
+  Lock
 } from 'lucide-react';
 
 export const PartnerWorkspace = () => {
   const { user, profile, updateProfileState } = useAuth();
-  const { socket, activeOffer, clearActiveOffer, latestOrderUpdate, updateLocation } = useSocket();
+  const { socket, activeOffer, setOffer, clearActiveOffer, latestOrderUpdate, connectionEpoch, updateLocation } = useSocket();
   const toast = useToast();
 
   const [isOnline, setIsOnline] = useState(profile?.isOnline || false);
@@ -37,27 +41,119 @@ export const PartnerWorkspace = () => {
   const [recentCompleted, setRecentCompleted] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Delivery Handover PIN Verification State
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [handoverPinInput, setHandoverPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
   // Countdown timer for incoming offer
   const [countdown, setCountdown] = useState(45);
   const [isActionLoading, setIsActionLoading] = useState(false);
 
-  // Simulated GPS movement state
-  const [courierSimCoords, setCourierSimCoords] = useState(
-    profile?.currentCoordinates?.coordinates || [-73.9842, 40.7505]
+  const enableDemo = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_DEMO === 'true';
+
+  // Live GPS Tracking & Telemetry State
+  const [isGpsActive, setIsGpsActive] = useState(false);
+  const [gpsError, setGpsError] = useState('');
+  const watchIdRef = useRef(null);
+  const activeDeliveryRef = useRef(activeDelivery);
+
+  useEffect(() => {
+    activeDeliveryRef.current = activeDelivery;
+  }, [activeDelivery]);
+
+  // Active courier coordinates (initialized from saved profile location if available, otherwise null until GPS lock)
+  const [courierGpsCoords, setCourierGpsCoords] = useState(
+    profile?.currentCoordinates?.coordinates || null
   );
+  const [lastGpsTimestamp, setLastGpsTimestamp] = useState(profile?.lastLocationUpdate || null);
 
   const isApproved = profile?.verificationStatus === 'approved';
 
-  // Load active delivery and recent completions
+  const stopLocationTracking = () => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setIsGpsActive(false);
+  };
+
+  // Real HTML5 Geolocation toggle with watchPosition
+  const toggleLiveGps = () => {
+    if (isGpsActive) {
+      stopLocationTracking();
+      toast.info('Live GPS Paused', 'Courier beacon location updates paused.');
+      return;
+    }
+
+    if (!('geolocation' in navigator)) {
+      setGpsError('HTML5 Geolocation is not supported by your browser.');
+      toast.error('GPS Not Supported', 'Your device or browser does not provide geolocation support.');
+      return;
+    }
+
+    setGpsError('');
+    try {
+      const id = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const coords = [parseFloat(longitude.toFixed(6)), parseFloat(latitude.toFixed(6))];
+          setCourierGpsCoords(coords);
+          setLastGpsTimestamp(new Date());
+          updateLocation(latitude, longitude, activeDeliveryRef.current?._id);
+          setIsGpsActive(true);
+        },
+        (error) => {
+          console.warn('Geolocation error:', error);
+          let msg = 'Failed to retrieve location.';
+          if (error.code === 1) msg = 'Location access permission denied.';
+          else if (error.code === 2) msg = 'Position unavailable.';
+          else if (error.code === 3) msg = 'Location request timed out.';
+          setGpsError(msg);
+          setIsGpsActive(false);
+          toast.error('GPS Telemetry Alert', msg);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 12000
+        }
+      );
+      watchIdRef.current = id;
+      setIsGpsActive(true);
+      toast.success('Live GPS Active', 'Streaming live telemetry to SwiftFleet dispatch.');
+    } catch (err) {
+      setGpsError(err.message);
+      toast.error('GPS Error', err.message);
+    }
+  };
+
+  // Clean up GPS watcher on component unmount
+  useEffect(() => {
+    return () => {
+      stopLocationTracking();
+    };
+  }, []);
+
+  // Load active delivery, completed history, and active pending offers
   const fetchCourierState = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/orders');
-      const assigned = res.orders?.find((o) => ['assigned', 'picked_up'].includes(o.status));
+      const [ordersRes, offersRes] = await Promise.all([
+        api.get('/orders').catch(() => ({ orders: [] })),
+        api.get('/dispatch/offers').catch(() => ({ activeOffer: null }))
+      ]);
+
+      const assigned = ordersRes.orders?.find((o) => ['assigned', 'picked_up'].includes(o.status));
       setActiveDelivery(assigned || null);
 
-      const completed = res.orders?.filter((o) => o.status === 'delivered') || [];
+      const completed = ordersRes.orders?.filter((o) => o.status === 'delivered') || [];
       setRecentCompleted(completed.slice(0, 5));
+
+      // Synchronize active offer from authoritative backend
+      if (offersRes?.activeOffer && !assigned) {
+        if (setOffer) setOffer(offersRes.activeOffer);
+      }
     } catch (err) {
       console.error('Error fetching partner deliveries:', err);
     } finally {
@@ -67,7 +163,7 @@ export const PartnerWorkspace = () => {
 
   useEffect(() => {
     fetchCourierState();
-  }, []);
+  }, [connectionEpoch]);
 
   // Sync latest order update
   useEffect(() => {
@@ -76,20 +172,30 @@ export const PartnerWorkspace = () => {
     }
   }, [latestOrderUpdate]);
 
-  // Countdown effect when offer arrives
+  // Accurate countdown timer based on offer expiration timestamp
   useEffect(() => {
     if (!activeOffer) return;
 
-    setCountdown(45);
+    const getRemaining = () => {
+      if (!activeOffer.expiresAt) return 45;
+      const diff = Math.floor((new Date(activeOffer.expiresAt).getTime() - Date.now()) / 1000);
+      return Math.max(0, diff);
+    };
+
+    const initial = getRemaining();
+    if (initial <= 0) {
+      clearActiveOffer();
+      return;
+    }
+
+    setCountdown(initial);
     const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          clearActiveOffer();
-          return 0;
-        }
-        return prev - 1;
-      });
+      const remaining = getRemaining();
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        clearActiveOffer();
+      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -104,7 +210,11 @@ export const PartnerWorkspace = () => {
       if (profile) {
         updateProfileState({ ...profile, isOnline: res.isOnline });
       }
+      if (!res.isOnline) {
+        stopLocationTracking();
+      }
       toast.info(res.isOnline ? 'You are now Online' : 'You are now Offline', res.message);
+      fetchCourierState();
     } catch (err) {
       toast.error('Could not toggle status', err.message);
     } finally {
@@ -112,18 +222,21 @@ export const PartnerWorkspace = () => {
     }
   };
 
-  // Accept incoming offer
+  // Accept incoming offer with concurrency guard and specific error feedback
   const handleAcceptOffer = async (orderId) => {
+    if (!orderId || isActionLoading) return;
     try {
       setIsActionLoading(true);
       const res = await api.post(`/dispatch/accept/${orderId}`);
       clearActiveOffer();
       setActiveDelivery(res.order);
       toast.success('Offer Accepted!', `Order #${res.order.orderNumber} assigned to you.`);
-      fetchCourierState();
+      await fetchCourierState();
     } catch (err) {
       toast.error('Acceptance Failed', err.message);
-      clearActiveOffer();
+      if (err.status === 409 || err.status === 410 || err.status === 403 || err.status === 404) {
+        clearActiveOffer();
+      }
     } finally {
       setIsActionLoading(false);
     }
@@ -131,19 +244,33 @@ export const PartnerWorkspace = () => {
 
   // Reject offer
   const handleRejectOffer = async (orderId) => {
+    if (!orderId || isActionLoading) return;
     try {
+      setIsActionLoading(true);
       await api.post(`/dispatch/reject/${orderId}`);
       clearActiveOffer();
       toast.info('Offer Declined', 'Order re-routed to next eligible courier.');
+      await fetchCourierState();
     } catch (err) {
       console.error(err);
       clearActiveOffer();
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
   // Advance delivery lifecycle state: assigned -> picked_up -> delivered
   const handleAdvanceState = async (nextStatus) => {
     if (!activeDelivery) return;
+
+    // Delivery completion requires 4-digit customer handover PIN verification
+    if (nextStatus === 'delivered') {
+      setShowPinModal(true);
+      setHandoverPinInput('');
+      setPinError('');
+      return;
+    }
+
     try {
       setIsActionLoading(true);
       const res = await api.post('/dispatch/status-update', {
@@ -151,21 +278,8 @@ export const PartnerWorkspace = () => {
         targetStatus: nextStatus
       });
 
-      if (nextStatus === 'delivered') {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-        toast.success(
-          'Delivery Completed!',
-          `$${res.order.pricing?.partnerPayout?.toFixed(2)} credited to your earnings ledger.`
-        );
-        setActiveDelivery(null);
-      } else {
-        toast.info('Package Picked Up', 'In transit to customer dropoff.');
-        setActiveDelivery(res.order);
-      }
+      toast.info('Package Picked Up', 'In transit to customer dropoff.');
+      setActiveDelivery(res.order);
       fetchCourierState();
     } catch (err) {
       toast.error('State Update Failed', err.message);
@@ -174,19 +288,42 @@ export const PartnerWorkspace = () => {
     }
   };
 
-  // Simulate movement along route for evaluator live demonstration
-  const handleSimulateMovement = () => {
-    if (!activeDelivery) return;
-    const isPickedUp = activeDelivery.status === 'picked_up';
-    const target = isPickedUp ? activeDelivery.dropoff.coordinates : activeDelivery.pickup.coordinates;
+  // Submit customer handover PIN to complete delivery & credit payout
+  const handleConfirmHandover = async (e) => {
+    if (e) e.preventDefault();
+    if (!handoverPinInput || handoverPinInput.trim().length !== 4) {
+      setPinError('Please enter the 4-digit PIN provided by the customer.');
+      return;
+    }
 
-    const newLng = courierSimCoords[0] + (target[0] - courierSimCoords[0]) * 0.35;
-    const newLat = courierSimCoords[1] + (target[1] - courierSimCoords[1]) * 0.35;
-    const updated = [parseFloat(newLng.toFixed(4)), parseFloat(newLat.toFixed(4))];
+    try {
+      setIsActionLoading(true);
+      setPinError('');
+      const res = await api.post('/dispatch/status-update', {
+        orderId: activeDelivery._id,
+        targetStatus: 'delivered',
+        handoverPin: handoverPinInput.trim()
+      });
 
-    setCourierSimCoords(updated);
-    updateLocation(updated[1], updated[0]);
-    toast.info('Location Beacon Updated', `Simulated coordinates: ${updated[1]}, ${updated[0]}`);
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+      toast.success(
+        'Delivery Completed!',
+        `${formatINR(res.order.pricing?.partnerPayout)} credited to your earnings ledger.`
+      );
+      setShowPinModal(false);
+      setHandoverPinInput('');
+      setActiveDelivery(null);
+      fetchCourierState();
+    } catch (err) {
+      setPinError(err.message || 'Verification failed');
+      toast.error('Handover Failed', err.message);
+    } finally {
+      setIsActionLoading(false);
+    }
   };
 
   return (
@@ -200,9 +337,6 @@ export const PartnerWorkspace = () => {
             <p className="mt-1 leading-relaxed">
               Your courier account status is currently: <strong>{profile?.verificationStatus?.toUpperCase() || 'PENDING'}</strong>.
               Operations administrators review all driver licenses and identity records. You can explore the workspace, but incoming live orders are restricted until verified.
-            </p>
-            <p className="mt-2 text-[11px] text-amber-800 font-mono">
-              Demo tip: Use the navbar <strong>"Switch Demo Persona"</strong> to switch to Marcus Vance (Approved) or Sarah Lin (Admin Ops to approve this profile).
             </p>
           </div>
         </div>
@@ -226,15 +360,26 @@ export const PartnerWorkspace = () => {
           </div>
         </div>
 
-        {/* Online / Offline Toggle Button */}
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        {/* Action Controls: Live GPS + Online/Offline Toggle */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          <Button
+            type="button"
+            variant={isGpsActive ? 'secondary' : 'outline'}
+            size="md"
+            onClick={toggleLiveGps}
+            leftIcon={<Crosshair className={`w-4 h-4 ${isGpsActive ? 'text-emerald-600 animate-pulse' : ''}`} />}
+            className={isGpsActive ? 'border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold' : ''}
+          >
+            {isGpsActive ? 'GPS Live (Active)' : 'Enable Live GPS'}
+          </Button>
+
           <Button
             variant={isOnline ? 'secondary' : 'success'}
             size="md"
             onClick={handleToggleOnline}
             isLoading={isActionLoading}
             leftIcon={<Power className="w-4 h-4" />}
-            className="w-full sm:w-auto"
+            className="flex-1 sm:flex-initial"
           >
             {isOnline ? 'Go Offline' : 'Go Online for Offers'}
           </Button>
@@ -265,7 +410,7 @@ export const PartnerWorkspace = () => {
             <div className="bg-brand-600/50 p-3 rounded-xl border border-brand-400/30">
               <span className="text-brand-200 block text-[10px] uppercase font-bold">Guaranteed Courier Payout</span>
               <span className="text-2xl font-extrabold font-mono text-emerald-300">
-                ${activeOffer.order?.pricing?.partnerPayout?.toFixed(2)}
+                {formatINR(activeOffer.order?.pricing?.partnerPayout)}
               </span>
             </div>
 
@@ -302,6 +447,7 @@ export const PartnerWorkspace = () => {
               size="lg"
               className="w-1/3 bg-brand-700 hover:bg-brand-800 text-white border-0"
               onClick={() => handleRejectOffer(activeOffer.order?._id)}
+              disabled={isActionLoading}
             >
               Decline
             </Button>
@@ -311,8 +457,9 @@ export const PartnerWorkspace = () => {
               className="w-2/3 bg-emerald-500 hover:bg-emerald-600 font-bold text-base shadow-subtle"
               onClick={() => handleAcceptOffer(activeOffer.order?._id)}
               isLoading={isActionLoading}
+              disabled={isActionLoading}
             >
-              Accept Delivery (${activeOffer.order?.pricing?.partnerPayout?.toFixed(2)})
+              Accept Delivery ({formatINR(activeOffer.order?.pricing?.partnerPayout)})
             </Button>
           </div>
         </div>
@@ -380,7 +527,7 @@ export const PartnerWorkspace = () => {
                   <div className="p-3 bg-white rounded-lg border border-ink-200">
                     <span className="text-ink-500 block text-[11px]">Guaranteed Payout</span>
                     <span className="text-xl font-bold font-mono text-emerald-700">
-                      ${activeDelivery.pricing?.partnerPayout?.toFixed(2)}
+                      {formatINR(activeDelivery.pricing?.partnerPayout)}
                     </span>
                   </div>
                   <div className="p-3 bg-white rounded-lg border border-ink-200">
@@ -417,18 +564,6 @@ export const PartnerWorkspace = () => {
                     </Button>
                   )}
                 </div>
-
-                {/* Evaluator Helper: Simulate GPS Movement Button */}
-                <div className="pt-2 text-center">
-                  <button
-                    type="button"
-                    onClick={handleSimulateMovement}
-                    className="text-xs text-brand-600 hover:text-brand-800 font-medium inline-flex items-center gap-1.5 underline"
-                  >
-                    <Navigation className="w-3.5 h-3.5" />
-                    Simulate Courier GPS Beacon Telemetry
-                  </button>
-                </div>
               </div>
             </Card>
           </div>
@@ -439,7 +574,8 @@ export const PartnerWorkspace = () => {
               <DeliveryMap
                 pickupCoords={activeDelivery.pickup?.coordinates}
                 dropoffCoords={activeDelivery.dropoff?.coordinates}
-                courierCoords={courierSimCoords}
+                courierCoords={courierGpsCoords}
+                lastLocationUpdate={lastGpsTimestamp}
                 pickupAddress={activeDelivery.pickup?.address}
                 dropoffAddress={activeDelivery.dropoff?.address}
                 courierName={user?.name}
@@ -468,7 +604,7 @@ export const PartnerWorkspace = () => {
               {isOnline && (
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-mono font-medium border border-emerald-200">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                  <span>Proximity Geofence Active (Midtown Manhattan)</span>
+                  <span>Proximity Geofence Active (India Metropolitan Fleet)</span>
                 </div>
               )}
             </Card>
@@ -495,7 +631,7 @@ export const PartnerWorkspace = () => {
 
                       <div className="text-right">
                         <span className="font-mono font-bold text-emerald-700 text-sm">
-                          +${order.pricing?.partnerPayout?.toFixed(2)}
+                          +{formatINR(order.pricing?.partnerPayout)}
                         </span>
                         <span className="text-[10px] text-ink-400 block">
                           {new Date(order.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -515,7 +651,7 @@ export const PartnerWorkspace = () => {
                 <div className="p-4 bg-ink-50 rounded-xl border border-ink-100">
                   <span className="text-xs text-ink-500 block">Cumulative Payouts</span>
                   <span className="text-3xl font-extrabold font-mono text-ink-950 mt-1 block">
-                    ${profile?.stats?.totalEarned?.toFixed(2) || '0.00'}
+                    {formatINR(profile?.stats?.totalEarned || 0)}
                   </span>
                   <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1 mt-1">
                     <TrendingUp className="w-3.5 h-3.5" />
@@ -553,6 +689,81 @@ export const PartnerWorkspace = () => {
             </Card>
           </div>
         </div>
+      )}
+
+      {/* Customer Handover PIN Verification Modal */}
+      {showPinModal && (
+        <Modal
+          isOpen={showPinModal}
+          onClose={() => {
+            if (!isActionLoading) {
+              setShowPinModal(false);
+              setPinError('');
+            }
+          }}
+          title="Verify Customer Handover PIN"
+          subtitle="Customer must provide the 4-digit verification code to complete delivery and release driver payout."
+          maxWidth="max-w-md"
+        >
+          <form onSubmit={handleConfirmHandover} className="space-y-4">
+            <div className="p-4 bg-brand-50 border border-brand-200 rounded-xl text-center space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-700">
+                Secure Delivery Proof
+              </span>
+              <p className="text-xs text-ink-600">
+                Ask the recipient for their 4-digit delivery PIN before handing over package #{activeDelivery?.orderNumber}.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-ink-800 mb-1.5 text-center">
+                Enter 4-Digit Handover PIN
+              </label>
+              <input
+                type="text"
+                maxLength={4}
+                value={handoverPinInput}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setHandoverPinInput(val);
+                  if (pinError) setPinError('');
+                }}
+                autoFocus
+                placeholder="••••"
+                className="w-full text-center tracking-[0.5em] text-3xl font-mono font-black py-3 px-4 bg-white border-2 border-brand-400 rounded-xl text-ink-950 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-sm"
+              />
+              {pinError && (
+                <p className="mt-2 text-xs text-center text-ops-danger font-medium">
+                  {pinError}
+                </p>
+              )}
+            </div>
+
+            <div className="pt-2 flex items-center justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setShowPinModal(false);
+                  setPinError('');
+                }}
+                disabled={isActionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={isActionLoading}
+                disabled={handoverPinInput.length !== 4 || isActionLoading}
+              >
+                Verify & Settle Payout
+              </Button>
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

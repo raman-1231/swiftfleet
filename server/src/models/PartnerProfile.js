@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { encrypt, maskIdentifier } = require('../utils/crypto');
 
 const partnerProfileSchema = new mongoose.Schema(
   {
@@ -36,14 +37,39 @@ const partnerProfileSchema = new mongoose.Schema(
       trim: true,
       default: ''
     },
+    licenseNumberEncrypted: {
+      type: String,
+      default: ''
+    },
+    licenseNumberMasked: {
+      type: String,
+      default: ''
+    },
     idDocumentType: {
       type: String,
-      enum: ['National ID', 'Driver License', 'Passport', 'Work Permit'],
-      default: 'Driver License'
+      enum: [
+        'Driving Licence',
+        'Aadhaar Card',
+        'PAN Card',
+        'Voter ID',
+        'Passport',
+        'National ID',
+        'Driver License',
+        'Work Permit'
+      ],
+      default: 'Driving Licence'
     },
     idDocumentNumber: {
       type: String,
       trim: true,
+      default: ''
+    },
+    idDocumentNumberEncrypted: {
+      type: String,
+      default: ''
+    },
+    idDocumentNumberMasked: {
+      type: String,
       default: ''
     },
     idDocumentUrl: {
@@ -68,7 +94,7 @@ const partnerProfileSchema = new mongoose.Schema(
       },
       coordinates: {
         type: [Number], // [longitude, latitude]
-        default: [-73.9851, 40.7484] // Default baseline coordinates (New York Midtown)
+        default: [77.2090, 28.6139] // Baseline India coordinates (New Delhi)
       }
     },
     lastLocationUpdate: {
@@ -86,6 +112,42 @@ const partnerProfileSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// Pre-save hook: auto encrypt and mask compliance identity numbers so plaintext is never stored
+partnerProfileSchema.pre('save', function (next) {
+  if (this.isModified('licenseNumber') && this.licenseNumber && !this.licenseNumber.includes('X')) {
+    if (!this.licenseNumberEncrypted) {
+      this.licenseNumberEncrypted = encrypt(this.licenseNumber);
+    }
+    this.licenseNumberMasked = maskIdentifier(this.licenseNumber, 'Driving Licence');
+    this.licenseNumber = this.licenseNumberMasked;
+  }
+
+  if (this.isModified('idDocumentNumber') && this.idDocumentNumber && !this.idDocumentNumber.includes('X')) {
+    if (!this.idDocumentNumberEncrypted) {
+      this.idDocumentNumberEncrypted = encrypt(this.idDocumentNumber);
+    }
+    this.idDocumentNumberMasked = maskIdentifier(this.idDocumentNumber, this.idDocumentType);
+    this.idDocumentNumber = this.idDocumentNumberMasked;
+  }
+  next();
+});
+
+// JSON and Object transforms: never return unmasked identity numbers or raw ciphertexts to standard endpoints
+function sanitizePartnerProfile(doc, ret) {
+  if (ret.licenseNumberMasked) {
+    ret.licenseNumber = ret.licenseNumberMasked;
+  }
+  if (ret.idDocumentNumberMasked) {
+    ret.idDocumentNumber = ret.idDocumentNumberMasked;
+  }
+  delete ret.licenseNumberEncrypted;
+  delete ret.idDocumentNumberEncrypted;
+  return ret;
+}
+
+partnerProfileSchema.set('toJSON', { transform: sanitizePartnerProfile });
+partnerProfileSchema.set('toObject', { transform: sanitizePartnerProfile });
 
 // 2dsphere index for proximity queries
 partnerProfileSchema.index({ currentCoordinates: '2dsphere' });

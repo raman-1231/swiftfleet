@@ -1,11 +1,14 @@
 const Order = require('../models/Order');
+const PartnerProfile = require('../models/PartnerProfile');
 const { calculateDeliveryQuote } = require('../services/pricingService');
-const { dispatchOrderOffer } = require('../services/matchingService');
+const { dispatchOrderOffer, clearOrderTimer } = require('../services/matchingService');
 const socketService = require('../services/socketService');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
-// Quick generator for human-readable order references like SWF-74291
+// Cryptographically secure generator for human-readable order references like SWF-74291
 function generateOrderNumber() {
-  const randNum = Math.floor(10000 + Math.random() * 90000);
+  const randNum = crypto.randomInt(10000, 100000);
   return `SWF-${randNum}`;
 }
 
@@ -51,13 +54,18 @@ exports.createOrder = async (req, res, next) => {
     });
 
     const orderNumber = generateOrderNumber();
+    const rawHandoverPin = crypto.randomInt(1000, 10000).toString();
+    const handoverPinHash = await bcrypt.hash(rawHandoverPin, 10);
 
     const order = await Order.create({
       orderNumber,
       businessId: req.user._id,
       status: 'created',
+      handoverPin: rawHandoverPin,
+      handoverPinHash,
       pickup: {
         address: pickup.address,
+        pincode: pickup.pincode || '',
         contactName: pickup.contactName || req.user.name,
         phone: pickup.phone || req.user.phone || '',
         coordinates: pickup.coordinates,
@@ -65,6 +73,7 @@ exports.createOrder = async (req, res, next) => {
       },
       dropoff: {
         address: dropoff.address,
+        pincode: dropoff.pincode || '',
         contactName: dropoff.contactName || 'Recipient',
         phone: dropoff.phone || '',
         coordinates: dropoff.coordinates,
@@ -77,10 +86,13 @@ exports.createOrder = async (req, res, next) => {
         notes: packageDetails?.notes || ''
       },
       pricing: {
+        currency: quote.pricingBreakdown.currency || 'INR',
+        currencySymbol: quote.pricingBreakdown.currencySymbol || '₹',
         baseFare: quote.pricingBreakdown.baseFare,
         distanceKm: quote.roadDistanceKm,
         distanceCost: quote.pricingBreakdown.distanceCost,
         weightCost: quote.pricingBreakdown.weightCost,
+        categoryCharge: quote.pricingBreakdown.categoryCharge || 0,
         totalCost: quote.pricingBreakdown.totalCost,
         partnerPayout: quote.pricingBreakdown.partnerPayout
       },
@@ -95,15 +107,18 @@ exports.createOrder = async (req, res, next) => {
       ]
     });
 
+    const orderObj = order.toObject();
+    delete orderObj.handoverPinHash;
+
     // Notify administrators and order listeners
-    socketService.emitToRole('admin', 'new_order_created', { order });
+    socketService.emitToRole('admin', 'new_order_created', { order: orderObj });
 
     // Trigger proximity dispatch engine asynchronously
     dispatchOrderOffer(order._id);
 
     res.status(201).json({
       message: 'Delivery order successfully created and queued for courier dispatch.',
-      order
+      order: orderObj
     });
   } catch (error) {
     next(error);
@@ -147,8 +162,19 @@ exports.getOrders = async (req, res, next) => {
       Order.countDocuments(query)
     ]);
 
+    const sanitizedOrders = orders.map((o) => {
+      const obj = o.toObject();
+      if (req.user.role === 'partner') {
+        delete obj.handoverPin;
+        delete obj.handoverPinHash;
+      } else {
+        delete obj.handoverPinHash;
+      }
+      return obj;
+    });
+
     res.json({
-      orders,
+      orders: sanitizedOrders,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -174,20 +200,36 @@ exports.getOrderById = async (req, res, next) => {
     }
 
     // Role-based authorization check
-    if (req.user.role === 'business' && String(order.businessId._id) !== String(req.user._id)) {
-      return res.status(403).json({ message: 'Forbidden: You do not own this order.' });
+    const currentUserId = req.user._id.toString();
+
+    if (req.user.role === 'business') {
+      const businessOwnerId = order.businessId?._id ? order.businessId._id.toString() : order.businessId?.toString();
+      if (businessOwnerId !== currentUserId) {
+        return res.status(403).json({ message: 'Forbidden: You do not own this order.' });
+      }
+    } else if (req.user.role === 'partner') {
+      const assignedPartnerId = order.assignedPartnerId?._id
+        ? order.assignedPartnerId._id.toString()
+        : order.assignedPartnerId?.toString();
+      const offeredPartnerId = order.offeredPartnerId?._id
+        ? order.offeredPartnerId._id.toString()
+        : order.offeredPartnerId?.toString();
+
+      // Couriers can only view orders assigned to them or actively offered to them
+      if (assignedPartnerId !== currentUserId && offeredPartnerId !== currentUserId) {
+        return res.status(403).json({ message: 'Forbidden: You are not assigned or offered this delivery order.' });
+      }
     }
 
-    if (
-      req.user.role === 'partner' &&
-      order.assignedPartnerId &&
-      String(order.assignedPartnerId._id) !== String(req.user._id) &&
-      String(order.offeredPartnerId?._id) !== String(req.user._id)
-    ) {
-      return res.status(403).json({ message: 'Forbidden: You are not assigned to this order.' });
+    const orderObj = order.toObject();
+    if (req.user.role === 'partner') {
+      delete orderObj.handoverPin;
+      delete orderObj.handoverPinHash;
+    } else {
+      delete orderObj.handoverPinHash;
     }
 
-    res.json(order);
+    res.json(orderObj);
   } catch (error) {
     next(error);
   }
@@ -200,8 +242,14 @@ exports.cancelOrder = async (req, res, next) => {
       return res.status(404).json({ message: 'Order not found.' });
     }
 
-    if (req.user.role === 'business' && String(order.businessId) !== String(req.user._id)) {
-      return res.status(403).json({ message: 'Forbidden: You do not own this order.' });
+    // Verify business ownership or admin role
+    if (req.user.role === 'business') {
+      const businessOwnerId = order.businessId?._id ? order.businessId._id.toString() : order.businessId?.toString();
+      if (businessOwnerId !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Forbidden: You do not own this order.' });
+      }
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: You do not have permission to cancel orders.' });
     }
 
     if (['picked_up', 'delivered'].includes(order.status)) {
@@ -221,11 +269,19 @@ exports.cancelOrder = async (req, res, next) => {
 
     await order.save();
 
-    socketService.emitToOrder(order._id, 'order_status_updated', {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      status: 'cancelled',
-      message: 'Order was cancelled.'
+    // Cancel in-memory offer timer if active
+    clearOrderTimer(order._id);
+
+    // If an assigned partner was working on this order, restore their availability
+    if (order.assignedPartnerId) {
+      await PartnerProfile.updateOne(
+        { userId: order.assignedPartnerId },
+        { $set: { isAvailable: true } }
+      );
+    }
+
+    socketService.broadcastOrderStatus(order, {
+      message: `Order was cancelled. Reason: ${order.cancellationReason}`
     });
 
     res.json({ message: 'Order successfully cancelled.', order });

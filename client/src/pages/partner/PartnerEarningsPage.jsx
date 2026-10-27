@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../api/apiClient';
 import { Card } from '../../components/common/Card';
 import { StatusBadge } from '../../components/common/Badge';
-import { DollarSign, TrendingUp, Calendar, Navigation, FileSpreadsheet } from 'lucide-react';
+import { formatINR } from '../../utils/currency';
+import { IndianRupee, TrendingUp, Calendar, Navigation, FileSpreadsheet } from 'lucide-react';
 import {
   AreaChart,
   Area,
@@ -50,7 +51,7 @@ export const PartnerEarningsPage = () => {
               <span className="text-xs font-semibold text-ink-500">Cumulative Earnings</span>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="text-2xl font-bold font-mono text-ink-950">
-                  ${data?.summary?.totalEarned?.toFixed(2) || '0.00'}
+                  {formatINR(data?.summary?.totalEarned)}
                 </span>
                 <span className="text-xs text-emerald-600 font-medium">Verified Payouts</span>
               </div>
@@ -80,7 +81,7 @@ export const PartnerEarningsPage = () => {
               <span className="text-xs font-semibold text-ink-500">Avg. Payout per Mission</span>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="text-2xl font-bold font-mono text-ink-950">
-                  ${data?.summary?.avgPayoutPerDelivery?.toFixed(2) || '0.00'}
+                  {formatINR(data?.summary?.avgPayoutPerDelivery)}
                 </span>
                 <span className="text-xs text-ink-500 font-medium">Per drop</span>
               </div>
@@ -101,9 +102,9 @@ export const PartnerEarningsPage = () => {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                     <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748B' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748B' }} prefix="$" />
+                    <YAxis tick={{ fontSize: 11, fill: '#64748B' }} prefix="₹" />
                     <Tooltip
-                      formatter={(val) => [`$${val.toFixed(2)}`, 'Payout']}
+                      formatter={(val) => [formatINR(val), 'Payout']}
                       contentStyle={{ backgroundColor: '#0F172A', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
                     />
                     <Area type="monotone" dataKey="payout" stroke="#3457E5" strokeWidth={2.5} fillOpacity={1} fill="url(#payoutGrad)" />
@@ -161,7 +162,7 @@ export const PartnerEarningsPage = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-6 text-right font-mono font-bold text-sm text-emerald-700">
-                          +${entry.amount?.toFixed(2)}
+                          +{formatINR(entry.amount)}
                         </td>
                       </tr>
                     ))

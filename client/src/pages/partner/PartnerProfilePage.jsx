@@ -22,7 +22,7 @@ export const PartnerProfilePage = () => {
       </div>
 
       {/* Verification Status Banner */}
-      <div className={`p-5 rounded-2xl border flex items-center justify-between ${
+      <div className={`p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
         profile?.verificationStatus === 'approved'
           ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
           : 'bg-amber-50 border-amber-200 text-amber-950'
@@ -68,7 +68,7 @@ export const PartnerProfilePage = () => {
               <span className="font-semibold text-ink-900 capitalize">{profile?.vehicleType || 'Motorcycle'}</span>
             </div>
             <div className="flex justify-between py-2">
-              <span className="text-ink-500">Driver License Ref:</span>
+              <span className="text-ink-500">Document Number:</span>
               <span className="font-mono font-semibold text-ink-900">{profile?.licenseNumber || 'Verified on file'}</span>
             </div>
           </div>
@@ -93,13 +93,13 @@ export const PartnerProfilePage = () => {
               <span className="font-bold font-mono text-ink-900">{profile?.stats?.acceptanceRate || 100}%</span>
             </div>
             <div className="flex justify-between py-2 border-b border-ink-100">
-              <span className="text-ink-500">Document Type:</span>
-              <span className="text-ink-900">{profile?.idDocumentType || 'Driver License'}</span>
+              <span className="text-ink-500">KYC Document Type:</span>
+              <span className="text-ink-900">{profile?.idDocumentType || 'Driving Licence'}</span>
             </div>
             <div className="flex justify-between py-2">
-              <span className="text-ink-500">Document Metadata:</span>
+              <span className="text-ink-500">KYC Audit Reference:</span>
               <span className="font-mono text-xs text-brand-600 truncate max-w-[200px]">
-                {profile?.idDocumentUrl || 'demo_license_audit.pdf'}
+                {profile?.idDocumentUrl || 'kyc_audit_verified.pdf'}
               </span>
             </div>
           </div>

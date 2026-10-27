@@ -26,8 +26,8 @@ function calculateDeliveryQuote({ pickupCoords, dropoffCoords, weightKg = 1.5, c
   const [lng2, lat2] = dropoffCoords;
 
   const straightLineDistance = calculateHaversineDistance(lng1, lat1, lng2, lat2);
-  // Urban road factor approximation
-  const roadDistanceKm = Math.max(0.8, parseFloat((straightLineDistance * 1.28).toFixed(2)));
+  // Urban road factor approximation for Indian city traffic topology (~1.30x straight-line)
+  const roadDistanceKm = Math.max(1.0, parseFloat((straightLineDistance * 1.30).toFixed(2)));
 
   // Base platform fare
   const baseFare = env.BASE_DELIVERY_FARE;
@@ -38,25 +38,29 @@ function calculateDeliveryQuote({ pickupCoords, dropoffCoords, weightKg = 1.5, c
   // Weight surcharge (over 3kg)
   let weightCost = 0;
   if (weightKg > 3) {
-    weightCost = parseFloat(((weightKg - 3) * 0.75).toFixed(2));
+    weightCost = parseFloat(((weightKg - 3) * env.WEIGHT_SURCHARGE_PER_KG).toFixed(2));
   }
 
   // Category surcharge (fragile or pharma expedited)
   let categoryCharge = 0;
   if (category === 'pharmaceuticals' || category === 'electronics') {
-    categoryCharge = 1.50;
+    categoryCharge = env.CATEGORY_SURCHARGE;
   }
 
   const totalCost = parseFloat((baseFare + distanceCost + weightCost + categoryCharge).toFixed(2));
   const partnerPayout = parseFloat((totalCost * env.PARTNER_PAYOUT_RATIO).toFixed(2));
 
-  // Urban transit model: 20 km/h average speed in city + 7 minutes pickup & handoff buffer
-  const estimatedDurationMins = Math.max(12, Math.round((roadDistanceKm / 20) * 60 + 7));
+  // Indian urban transit model: 22 km/h average two-wheeler transit + 8 minutes pickup & handoff buffer
+  const estimatedDurationMins = Math.max(15, Math.round((roadDistanceKm / 22) * 60 + 8));
 
   return {
     straightLineDistanceKm: parseFloat(straightLineDistance.toFixed(2)),
     roadDistanceKm,
+    currency: env.CURRENCY,
+    currencySymbol: env.CURRENCY_SYMBOL,
     pricingBreakdown: {
+      currency: env.CURRENCY,
+      currencySymbol: env.CURRENCY_SYMBOL,
       baseFare,
       distanceCost,
       weightCost,
@@ -65,7 +69,7 @@ function calculateDeliveryQuote({ pickupCoords, dropoffCoords, weightKg = 1.5, c
       partnerPayout
     },
     estimatedDurationMins,
-    disclaimer: 'Route distance modeled with 1.28x urban grid coefficient. Straight-line vs road distance disclosed.'
+    disclaimer: 'Route distance modeled with 1.30x Indian urban topology factor. Straight-line vs road distance disclosed.'
   };
 }
 

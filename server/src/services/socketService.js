@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 const User = require('../models/User');
+const Order = require('../models/Order');
+const PartnerProfile = require('../models/PartnerProfile');
 
 let io = null;
 
@@ -8,8 +10,14 @@ function initializeSocket(server) {
   const { Server } = require('socket.io');
   io = new Server(server, {
     cors: {
-      origin: '*', // Allows dev & preview clients
-      methods: ['GET', 'POST']
+      origin: (origin, callback) => {
+        if (env.isOriginAllowed(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error(`CORS policy rejects socket connection from origin '${origin}'`));
+      },
+      methods: ['GET', 'POST'],
+      credentials: true
     }
   });
 
@@ -43,42 +51,117 @@ function initializeSocket(server) {
     // Join role room
     socket.join(`role:${user.role}`);
 
-    // Join specific order room for live tracking
-    socket.on('join_order_room', ({ orderId }) => {
-      if (orderId) {
-        socket.join(`order:${orderId}`);
-        console.log(`📌 [Socket] ${user.name} joined order tracking room: order:${orderId}`);
+    // Join specific order room for live tracking (with authorization verification)
+    socket.on('join_order_room', async ({ orderId }) => {
+      if (!orderId) return;
+
+      try {
+        // Admins have platform-wide monitoring privileges
+        if (user.role === 'admin') {
+          socket.join(`order:${orderId.toString()}`);
+          console.log(`📌 [Socket] Admin ${user.name} joined order tracking room: order:${orderId}`);
+          return;
+        }
+
+        const order = await Order.findById(orderId).select('businessId assignedPartnerId offeredPartnerId');
+        if (!order) {
+          socket.emit('socket_error', { message: 'Order not found.' });
+          return;
+        }
+
+        const currentUserId = user._id.toString();
+        const businessOwnerId = order.businessId?._id ? order.businessId._id.toString() : order.businessId?.toString();
+        const assignedPartnerId = order.assignedPartnerId?._id ? order.assignedPartnerId._id.toString() : order.assignedPartnerId?.toString();
+        const offeredPartnerId = order.offeredPartnerId?._id ? order.offeredPartnerId._id.toString() : order.offeredPartnerId?.toString();
+
+        const isAuthorized =
+          businessOwnerId === currentUserId ||
+          assignedPartnerId === currentUserId ||
+          offeredPartnerId === currentUserId;
+
+        if (isAuthorized) {
+          socket.join(`order:${orderId.toString()}`);
+          console.log(`📌 [Socket] ${user.name} (${user.role}) authorized & joined order tracking room: order:${orderId}`);
+        } else {
+          console.warn(`⛔ [Socket] Unauthorized join attempt by ${user.name} (${user.role}) to order:${orderId}`);
+          socket.emit('unauthorized_room_join', {
+            orderId,
+            message: 'Forbidden: You are not authorized to track this delivery order.'
+          });
+        }
+      } catch (err) {
+        console.error('❌ [Socket Room Join Error]:', err.message);
       }
     });
 
     socket.on('leave_order_room', ({ orderId }) => {
       if (orderId) {
-        socket.leave(`order:${orderId}`);
+        socket.leave(`order:${orderId.toString()}`);
       }
     });
 
-    // Partner live location beacon updates
+    // Partner live location beacon updates with coordinate validation, throttling, assignment guard, and DB sync
     socket.on('courier_location_beacon', async ({ lat, lng, activeOrderId }) => {
-      if (user.role === 'partner' && lat && lng) {
-        // Broadcast location to the order room
+      if (user.role !== 'partner') return;
+
+      const numLat = parseFloat(lat);
+      const numLng = parseFloat(lng);
+
+      // Validate numeric range
+      if (isNaN(numLat) || isNaN(numLng) || numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
+        return;
+      }
+
+      // In-memory throttling: max 1 beacon every 1.5 seconds per socket
+      const now = Date.now();
+      if (socket.lastBeaconAt && now - socket.lastBeaconAt < 1500) {
+        return;
+      }
+      socket.lastBeaconAt = now;
+
+      try {
+        // Sync live coordinates to courier profile so matching engine uses current location
+        await PartnerProfile.updateOne(
+          { userId: user._id },
+          {
+            $set: {
+              'currentCoordinates.type': 'Point',
+              'currentCoordinates.coordinates': [numLng, numLat],
+              lastLocationUpdate: new Date()
+            }
+          }
+        );
+
+        // Multi-order isolation guard: verify courier is assigned to this order and delivery is active
         if (activeOrderId) {
-          io.to(`order:${activeOrderId}`).emit('courier_location_updated', {
-            orderId: activeOrderId,
-            partnerId: user._id,
-            partnerName: user.name,
-            lat,
-            lng,
-            timestamp: new Date()
-          });
+          const assignedOrder = await Order.findOne({
+            _id: activeOrderId,
+            assignedPartnerId: user._id,
+            status: { $in: ['assigned', 'picked_up'] }
+          }).select('_id status');
+
+          if (assignedOrder) {
+            io.to(`order:${activeOrderId}`).emit('courier_location_updated', {
+              orderId: activeOrderId,
+              partnerId: user._id,
+              partnerName: user.name,
+              lat: numLat,
+              lng: numLng,
+              timestamp: new Date()
+            });
+          }
         }
-        // Broadcast to admins
+
+        // Broadcast to admin operations monitoring
         io.to('role:admin').emit('fleet_location_updated', {
           partnerId: user._id,
           name: user.name,
-          lat,
-          lng,
+          lat: numLat,
+          lng: numLng,
           timestamp: new Date()
         });
+      } catch (beaconErr) {
+        console.error('❌ [Socket Location Beacon Error]:', beaconErr.message);
       }
     });
 
@@ -98,20 +181,102 @@ function getIO() {
 }
 
 function emitToUser(userId, event, data) {
-  if (io) {
+  if (io && userId) {
     io.to(`user:${userId.toString()}`).emit(event, data);
   }
 }
 
 function emitToRole(role, event, data) {
-  if (io) {
+  if (io && role) {
     io.to(`role:${role}`).emit(event, data);
   }
 }
 
 function emitToOrder(orderId, event, data) {
-  if (io) {
+  if (io && orderId) {
     io.to(`order:${orderId.toString()}`).emit(event, data);
+  }
+}
+
+function sanitizeOrder(order, { allowPin = false } = {}) {
+  if (!order) return null;
+  const obj = typeof order.toObject === 'function' ? order.toObject() : JSON.parse(JSON.stringify(order));
+  delete obj.handoverPinHash;
+  if (!allowPin) {
+    delete obj.handoverPin;
+  }
+  return obj;
+}
+
+/**
+ * Centralized order status broadcaster.
+ * Dispatches live updates to all authorized parties:
+ * 1. The specific order room (for OrderTrackingPage - PIN stripped)
+ * 2. The business owner (for BusinessDashboard - PIN preserved for customer confirmation)
+ * 3. The assigned courier (for PartnerWorkspace - PIN stripped for safety)
+ * 4. The offered courier (if offer dispatched/expired - PIN stripped)
+ * 5. All admin operations coordinators (for AdminConsole & FleetMonitoring - PIN preserved)
+ */
+function broadcastOrderStatus(order, extra = {}) {
+  if (!order) return;
+
+  try {
+    const orderId = order._id.toString();
+    const businessId = order.businessId?._id ? order.businessId._id.toString() : order.businessId?.toString();
+    const assignedPartnerId = order.assignedPartnerId?._id ? order.assignedPartnerId._id.toString() : order.assignedPartnerId?.toString();
+    const offeredPartnerId = order.offeredPartnerId?._id ? order.offeredPartnerId._id.toString() : order.offeredPartnerId?.toString();
+
+    const basePayload = {
+      orderId,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      businessId,
+      assignedPartnerId,
+      offeredPartnerId,
+      timestamp: new Date(),
+      ...extra
+    };
+
+    const courierSafeOrder = sanitizeOrder(order, { allowPin: false });
+    const privilegedOrder = sanitizeOrder(order, { allowPin: true });
+
+    // 1. Order tracking room (PIN stripped to prevent courier snooping via room join)
+    emitToOrder(orderId, 'order_status_updated', {
+      ...basePayload,
+      order: courierSafeOrder
+    });
+
+    // 2. Business merchant personal room (PIN preserved so merchant can communicate it to customer)
+    if (businessId) {
+      emitToUser(businessId, 'order_status_updated', {
+        ...basePayload,
+        order: privilegedOrder
+      });
+    }
+
+    // 3. Assigned partner personal room (PIN strictly stripped)
+    if (assignedPartnerId) {
+      emitToUser(assignedPartnerId, 'order_status_updated', {
+        ...basePayload,
+        order: courierSafeOrder
+      });
+    }
+
+    // 4. Offered partner personal room (if applicable - PIN strictly stripped)
+    if (offeredPartnerId && offeredPartnerId !== assignedPartnerId) {
+      emitToUser(offeredPartnerId, 'order_status_updated', {
+        ...basePayload,
+        order: courierSafeOrder
+      });
+    }
+
+    // 5. Admin role room (Privileged operations inspection)
+    emitToRole('admin', 'order_status_updated', {
+      ...basePayload,
+      order: privilegedOrder
+    });
+  } catch (err) {
+    console.error('❌ [Socket Broadcast Error]:', err.message);
   }
 }
 
@@ -120,5 +285,7 @@ module.exports = {
   getIO,
   emitToUser,
   emitToRole,
-  emitToOrder
+  emitToOrder,
+  broadcastOrderStatus,
+  sanitizeOrder
 };

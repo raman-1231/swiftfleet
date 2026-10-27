@@ -6,6 +6,7 @@ const Dispute = require('../models/Dispute');
 const AuditLog = require('../models/AuditLog');
 const Notification = require('../models/Notification');
 const socketService = require('../services/socketService');
+const { decrypt } = require('../utils/crypto');
 
 exports.getMetrics = async (req, res, next) => {
   try {
@@ -242,6 +243,49 @@ exports.getAuditLogs = async (req, res, next) => {
   try {
     const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(100);
     res.json({ logs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.decryptPartnerKYC = async (req, res, next) => {
+  try {
+    const { partnerId } = req.params;
+    const profile = await PartnerProfile.findOne({ userId: partnerId });
+    if (!profile) {
+      return res.status(404).json({ message: 'Partner profile not found.' });
+    }
+
+    // Write audit log entry
+    await AuditLog.create({
+      actorId: req.user._id,
+      actorName: req.user.name,
+      actorRole: req.user.role,
+      action: 'DECRYPT_KYC_DOCUMENT',
+      targetType: 'PartnerProfile',
+      targetId: profile._id.toString(),
+      metadata: {
+        partnerUserId: partnerId,
+        idDocumentType: profile.idDocumentType,
+        reason: req.query.reason || 'Compliance Verification Audit'
+      },
+      ipAddress: req.ip || '127.0.0.1'
+    });
+
+    const decryptedLicense = profile.licenseNumberEncrypted
+      ? decrypt(profile.licenseNumberEncrypted)
+      : profile.licenseNumber;
+    const decryptedDocNumber = profile.idDocumentNumberEncrypted
+      ? decrypt(profile.idDocumentNumberEncrypted)
+      : profile.idDocumentNumber;
+
+    res.json({
+      partnerId,
+      idDocumentType: profile.idDocumentType,
+      licenseNumber: decryptedLicense,
+      idDocumentNumber: decryptedDocNumber,
+      auditLogged: true
+    });
   } catch (error) {
     next(error);
   }

@@ -12,12 +12,23 @@ function generateToken(user) {
   );
 }
 
+// Indian mobile number validation (10 digits starting with 6, 7, 8, or 9)
+function isValidIndianPhone(phone) {
+  if (!phone) return true; // Optional on initial basic signup, validated when provided
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  return /^(\+91|0)?[6-9]\d{9}$/.test(cleaned);
+}
+
 exports.registerBusiness = async (req, res, next) => {
   try {
-    const { name, email, password, phone, companyName, category, address } = req.body;
+    const { name, email, password, phone, companyName, category, address, pincode, gstin } = req.body;
 
     if (!name || !email || !password || !companyName) {
       return res.status(400).json({ message: 'Name, email, password, and company name are required.' });
+    }
+
+    if (phone && !isValidIndianPhone(phone)) {
+      return res.status(400).json({ message: 'Please provide a valid 10-digit Indian mobile number.' });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -37,7 +48,9 @@ exports.registerBusiness = async (req, res, next) => {
       userId: user._id,
       companyName,
       category: category || 'retail',
-      address: address || '350 5th Ave, New York, NY 10118',
+      address: address || '',
+      pincode: pincode || '',
+      gstin: gstin || '',
       phone: phone || ''
     });
 
@@ -70,11 +83,16 @@ exports.registerPartner = async (req, res, next) => {
       vehicleType,
       licenseNumber,
       idDocumentType,
-      idDocumentNumber
+      idDocumentNumber,
+      idDocumentUrl
     } = req.body;
 
     if (!name || !email || !password || !licenseNumber) {
       return res.status(400).json({ message: 'Name, email, password, and license number are required.' });
+    }
+
+    if (phone && !isValidIndianPhone(phone)) {
+      return res.status(400).json({ message: 'Please provide a valid 10-digit Indian mobile number.' });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -87,25 +105,30 @@ exports.registerPartner = async (req, res, next) => {
       email,
       password,
       role: 'partner',
-      phone: phone || ''
+      phone: phone || '',
+      isPhoneVerified: false
     });
 
-    // Generate simulated document identifier for verification audit
-    const simulatedDocUrl = `/uploads/documents/doc_${Date.now()}_verified.pdf`;
+    // Support genuine document reference; disable simulated fake file URLs
+    const documentAssetUrl = idDocumentUrl || '';
 
     const partnerProfile = await PartnerProfile.create({
       userId: user._id,
       verificationStatus: 'pending',
+      verificationNotes: 'Application submitted. Document inspection pending by compliance operations officer.',
       vehicleType: vehicleType || 'motorcycle',
       licenseNumber,
-      idDocumentType: idDocumentType || 'Driver License',
-      idDocumentNumber: idDocumentNumber || `DL-${Math.floor(100000 + Math.random() * 900000)}`,
-      idDocumentUrl: simulatedDocUrl,
+      idDocumentType: idDocumentType || 'Driving Licence',
+      idDocumentNumber: idDocumentNumber || licenseNumber,
+      idDocumentUrl: documentAssetUrl,
       isOnline: false,
       isAvailable: true,
       currentCoordinates: {
         type: 'Point',
-        coordinates: [-73.9851 + (Math.random() - 0.5) * 0.05, 40.7484 + (Math.random() - 0.5) * 0.05]
+        coordinates: [
+          env.DEFAULT_LNG + (Math.random() - 0.5) * 0.02,
+          env.DEFAULT_LAT + (Math.random() - 0.5) * 0.02
+        ]
       }
     });
 
@@ -138,12 +161,12 @@ exports.login = async (req, res, next) => {
 
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
     if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials. User not found.' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials. Incorrect password.' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     if (user.status === 'suspended') {

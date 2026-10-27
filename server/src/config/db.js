@@ -12,6 +12,9 @@ async function connectDB() {
     let mongoUri = env.MONGODB_URI;
 
     if (!mongoUri) {
+      if (env.NODE_ENV === 'production') {
+        throw new Error('FATAL: MONGODB_URI environment variable is required in production mode. Refusing to start embedded database.');
+      }
       if (!mongodInstance) {
         console.log('⚡ [Database] No MONGODB_URI detected in environment. Initializing MongoMemoryServer for zero-config execution...');
         const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -21,7 +24,16 @@ async function connectDB() {
       console.log(`⚡ [Database] MongoMemoryServer active at: ${mongoUri}`);
     }
 
-    await mongoose.connect(mongoUri);
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 5000
+    });
+
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ [Database] MongoDB connection error:', err.message);
+    });
+    mongoose.connection.on('disconnected', () => {
+      console.warn('⚠️ [Database] MongoDB disconnected');
+    });
     console.log(`✅ [Database] MongoDB Connected successfully to: ${mongoose.connection.host || 'embedded-instance'}`);
     return mongoose.connection;
   } catch (error) {

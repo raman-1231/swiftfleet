@@ -20,20 +20,20 @@ import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
 
 export const LandingPage = () => {
-  // Interactive live delivery estimator widget
-  const [distanceKm, setDistanceKm] = useState(2.5);
+  // Interactive live delivery estimator widget (Indian Hyperlocal Parameters)
+  const [distanceKm, setDistanceKm] = useState(3.5);
   const [packageWeight, setPackageWeight] = useState(1.5);
   const [packageCategory, setPackageCategory] = useState('general');
 
-  // Calculation mirrors server pricing logic
-  const roadDistance = parseFloat((distanceKm * 1.28).toFixed(1));
-  const baseFare = 5.00;
-  const distanceCost = parseFloat((roadDistance * 1.80).toFixed(2));
-  const weightSurcharge = packageWeight > 3 ? parseFloat(((packageWeight - 3) * 0.75).toFixed(2)) : 0;
-  const categorySurcharge = packageCategory === 'pharma' ? 1.50 : 0;
+  // Calculation matches authoritative server pricingService.js formula in INR
+  const roadDistance = parseFloat((distanceKm * 1.30).toFixed(1));
+  const baseFare = 40.00;
+  const distanceCost = parseFloat((roadDistance * 12.00).toFixed(2));
+  const weightSurcharge = packageWeight > 3 ? parseFloat(((packageWeight - 3) * 15.00).toFixed(2)) : 0;
+  const categorySurcharge = packageCategory === 'pharma' ? 25.00 : 0;
   const totalCost = parseFloat((baseFare + distanceCost + weightSurcharge + categorySurcharge).toFixed(2));
   const driverPayout = parseFloat((totalCost * 0.78).toFixed(2));
-  const estimatedMins = Math.max(12, Math.round((roadDistance / 20) * 60 + 7));
+  const estimatedMins = Math.max(15, Math.round((roadDistance / 22) * 60 + 8));
 
   return (
     <div className="min-h-screen bg-ink-50">
@@ -169,32 +169,32 @@ export const LandingPage = () => {
                   {/* Transparent Calculation Ledger Breakdown */}
                   <div className="bg-white p-4 rounded-xl border border-ink-200 space-y-2 text-xs">
                     <div className="flex justify-between text-ink-600">
-                      <span>Base Dispatch Fee</span>
-                      <span className="font-mono">${baseFare.toFixed(2)}</span>
+                      <span>Base Dispatch Fee (first 2 km)</span>
+                      <span className="font-mono">₹{baseFare.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-ink-600">
-                      <span>Distance Fare ({roadDistance} km @ $1.80/km)</span>
-                      <span className="font-mono">${distanceCost.toFixed(2)}</span>
+                      <span>Distance Fare ({roadDistance} km @ ₹12.00/km)</span>
+                      <span className="font-mono">₹{distanceCost.toFixed(2)}</span>
                     </div>
                     {weightSurcharge > 0 && (
                       <div className="flex justify-between text-ink-600">
-                        <span>Weight Surcharge (&gt;3kg)</span>
-                        <span className="font-mono">+${weightSurcharge.toFixed(2)}</span>
+                        <span>Weight Surcharge (&gt;3kg @ ₹15/kg)</span>
+                        <span className="font-mono">+₹{weightSurcharge.toFixed(2)}</span>
                       </div>
                     )}
                     {categorySurcharge > 0 && (
                       <div className="flex justify-between text-ink-600">
                         <span>Expedited Pharma Handling</span>
-                        <span className="font-mono">+${categorySurcharge.toFixed(2)}</span>
+                        <span className="font-mono">+₹{categorySurcharge.toFixed(2)}</span>
                       </div>
                     )}
 
                     <div className="pt-2 border-t border-ink-100 flex justify-between items-baseline">
                       <div>
                         <span className="font-bold text-ink-900 text-sm">Merchant Total</span>
-                        <span className="block text-[10px] text-ink-400">Road grid modeled</span>
+                        <span className="block text-[10px] text-ink-400">Road grid modeled (1.30x)</span>
                       </div>
-                      <span className="text-xl font-extrabold text-ink-950 font-mono">${totalCost.toFixed(2)}</span>
+                      <span className="text-xl font-extrabold text-ink-950 font-mono">₹{totalCost.toFixed(2)}</span>
                     </div>
 
                     <div className="pt-2 border-t border-dashed border-ink-200 flex justify-between items-center text-emerald-800 bg-emerald-50/60 p-2 rounded-lg">
@@ -202,7 +202,7 @@ export const LandingPage = () => {
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         <span className="font-medium text-[11px]">Courier Payout (78%)</span>
                       </div>
-                      <span className="font-bold font-mono text-sm text-emerald-700">${driverPayout.toFixed(2)}</span>
+                      <span className="font-bold font-mono text-sm text-emerald-700">₹{driverPayout.toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -213,6 +213,10 @@ export const LandingPage = () => {
                     </div>
                     <span className="text-[11px] font-mono text-ink-400">Zero hidden markups</span>
                   </div>
+
+                  <p className="text-[10px] text-ink-400 leading-normal pt-1 border-t border-ink-100">
+                    * Route distances are estimated using a 1.30x Indian urban topology factor over straight-line Haversine displacement; not live turn-by-turn road navigation.
+                  </p>
                 </div>
               </div>
             </div>

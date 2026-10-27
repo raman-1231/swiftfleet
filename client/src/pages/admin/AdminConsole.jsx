@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api/apiClient';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { formatINR } from '../../utils/currency';
 import {
   ShieldCheck,
   Truck,
   Users,
   AlertOctagon,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   Clock,
   Layers,
@@ -97,7 +98,7 @@ export const AdminConsole = () => {
               <span className="text-xs font-semibold text-ink-500">Gross Merchant Volume</span>
               <div className="mt-2">
                 <span className="text-2xl font-bold font-mono text-ink-950">
-                  ${metrics?.totalRevenue?.toFixed(2) || '0.00'}
+                  {formatINR(metrics?.totalRevenue)}
                 </span>
                 <span className="text-[11px] text-ink-500 block mt-1">Aggregated order gross spend</span>
               </div>
@@ -107,7 +108,7 @@ export const AdminConsole = () => {
               <span className="text-xs font-semibold text-ink-500">Total Courier Disbursements</span>
               <div className="mt-2">
                 <span className="text-2xl font-bold font-mono text-emerald-700">
-                  ${metrics?.totalPayouts?.toFixed(2) || '0.00'}
+                  {formatINR(metrics?.totalPayouts)}
                 </span>
                 <span className="text-[11px] text-emerald-600 block mt-1">78% average driver revenue share</span>
               </div>
@@ -117,7 +118,7 @@ export const AdminConsole = () => {
               <span className="text-xs font-semibold text-ink-500">Net Platform Margin</span>
               <div className="mt-2">
                 <span className="text-2xl font-bold font-mono text-brand-600">
-                  ${metrics?.netPlatformMargin?.toFixed(2) || '0.00'}
+                  {formatINR(metrics?.netPlatformMargin)}
                 </span>
                 <span className="text-[11px] text-brand-600 block mt-1">Retained infrastructure revenue</span>
               </div>

@@ -8,6 +8,9 @@ import { Button } from '../../components/common/Button';
 import { StatusBadge } from '../../components/common/Badge';
 import { EmptyState } from '../../components/common/EmptyState';
 import { DeliveryMap } from '../../components/maps/DeliveryMap';
+import { ConfirmDialog } from '../../components/common/ConfirmDialog';
+import { useToast } from '../../context/ToastContext';
+import { formatINR } from '../../utils/currency';
 import {
   PlusCircle,
   Package,
@@ -17,50 +20,117 @@ import {
   ArrowUpRight,
   Search,
   Filter,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   MapPin
 } from 'lucide-react';
 
 export const BusinessDashboard = () => {
   const { user, profile } = useAuth();
-  const { latestOrderUpdate } = useSocket();
+  const { latestOrderUpdate, connectionEpoch } = useSocket();
+  const toast = useToast();
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedOrderForMap, setSelectedOrderForMap] = useState(null);
+  const [orderToCancel, setOrderToCancel] = useState(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await api.get(`/orders?status=${statusFilter}&search=${search}`);
-      setOrders(res.orders || []);
-      if (res.orders && res.orders.length > 0 && !selectedOrderForMap) {
-        setSelectedOrderForMap(res.orders[0]);
+      const fetchedOrders = res.orders || [];
+      setOrders(fetchedOrders);
+      if (fetchedOrders.length > 0) {
+        setSelectedOrderForMap((prev) => {
+          if (!prev) return fetchedOrders[0];
+          const match = fetchedOrders.find((o) => o._id === prev._id);
+          return match || fetchedOrders[0];
+        });
       }
     } catch (err) {
       console.error('Failed to load orders:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchOrders();
+    fetchOrders(false);
   }, [statusFilter]);
 
-  // Re-fetch or update when socket broadcasts an order status change
+  // Re-fetch on socket connection / reconnection
+  useEffect(() => {
+    fetchOrders(true);
+  }, [connectionEpoch]);
+
+  // Real-time synchronization when socket broadcasts an order status change
   useEffect(() => {
     if (latestOrderUpdate) {
-      fetchOrders();
+      // In-place optimistic update to avoid screen flash
+      setOrders((prev) => {
+        const orderId = latestOrderUpdate.orderId;
+        const exists = prev.some((o) => o._id === orderId);
+        if (exists) {
+          return prev.map((o) => {
+            if (o._id === orderId) {
+              return {
+                ...o,
+                status: latestOrderUpdate.status,
+                assignedPartnerId: latestOrderUpdate.assignedPartner || latestOrderUpdate.order?.assignedPartnerId || o.assignedPartnerId,
+                ...(latestOrderUpdate.order || {})
+              };
+            }
+            return o;
+          });
+        }
+        // If order was newly created
+        if (latestOrderUpdate.order) {
+          return [latestOrderUpdate.order, ...prev];
+        }
+        return prev;
+      });
+
+      setSelectedOrderForMap((prev) => {
+        if (prev && prev._id === latestOrderUpdate.orderId) {
+          return {
+            ...prev,
+            status: latestOrderUpdate.status,
+            assignedPartnerId: latestOrderUpdate.assignedPartner || latestOrderUpdate.order?.assignedPartnerId || prev.assignedPartnerId,
+            ...(latestOrderUpdate.order || {})
+          };
+        }
+        return prev;
+      });
+
+      // Background authoritative fetch
+      fetchOrders(true);
     }
   }, [latestOrderUpdate]);
 
   const activeOrders = orders.filter((o) => ['created', 'offered', 'assigned', 'picked_up'].includes(o.status));
   const deliveredOrders = orders.filter((o) => o.status === 'delivered');
   const totalSpend = deliveredOrders.reduce((sum, o) => sum + (o.pricing?.totalCost || 0), 0);
+
+  const handleConfirmCancel = async () => {
+    if (!orderToCancel) return;
+    try {
+      setIsCancelling(true);
+      await api.post(`/orders/${orderToCancel._id}/cancel`, {
+        reason: 'Cancelled by merchant from operations dashboard'
+      });
+      toast.success('Order Cancelled', `Order #${orderToCancel.orderNumber} was cancelled.`);
+      setOrderToCancel(null);
+      fetchOrders(true);
+    } catch (err) {
+      toast.error('Cancellation Failed', err.message);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -140,11 +210,11 @@ export const BusinessDashboard = () => {
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-ink-500">Total Spend</span>
             <div className="p-2 rounded-lg bg-blue-50 text-brand-600">
-              <DollarSign className="w-4 h-4" />
+              <IndianRupee className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold font-mono text-ink-950">${totalSpend.toFixed(2)}</span>
+            <span className="text-2xl font-bold font-mono text-ink-950">{formatINR(totalSpend)}</span>
             <span className="text-xs text-ink-500 font-medium">Settled ledger</span>
           </div>
         </Card>
@@ -209,23 +279,42 @@ export const BusinessDashboard = () => {
                             {order.orderNumber}
                           </span>
                           <StatusBadge status={order.status} />
+                          {order.handoverPin && order.status !== 'delivered' && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-50 text-amber-900 border border-amber-300">
+                              PIN: {order.handoverPin}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
                           <span>{order.packageDetails?.category}</span>
                           <span>•</span>
                           <span>{order.packageDetails?.weightKg} kg</span>
                           <span>•</span>
-                          <span className="font-mono">${order.pricing?.totalCost?.toFixed(2)}</span>
+                          <span className="font-mono">{formatINR(order.pricing?.totalCost)}</span>
                         </p>
                       </div>
 
-                      <Link
-                        to={`/orders/${order._id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1"
-                      >
-                        Track <ArrowUpRight className="w-3.5 h-3.5" />
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {['created', 'offered', 'assigned'].includes(order.status) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOrderToCancel(order);
+                            }}
+                            className="text-xs font-semibold text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                        <Link
+                          to={`/orders/${order._id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs font-semibold text-brand-600 hover:text-brand-800 flex items-center gap-1"
+                        >
+                          Track <ArrowUpRight className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
                     </div>
 
                     {/* Route Details */}
@@ -274,6 +363,7 @@ export const BusinessDashboard = () => {
                   pickupCoords={selectedOrderForMap.pickup?.coordinates}
                   dropoffCoords={selectedOrderForMap.dropoff?.coordinates}
                   courierCoords={selectedOrderForMap.currentPartnerLocation}
+                  lastLocationUpdate={selectedOrderForMap.currentPartnerLocation?.updatedAt}
                   pickupAddress={selectedOrderForMap.pickup?.address}
                   dropoffAddress={selectedOrderForMap.dropoff?.address}
                   courierName={selectedOrderForMap.assignedPartnerId?.name || 'Courier'}
@@ -315,6 +405,18 @@ export const BusinessDashboard = () => {
           </Card>
         </div>
       </div>
+
+      {/* Order Cancellation Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={!!orderToCancel}
+        onClose={() => setOrderToCancel(null)}
+        onConfirm={handleConfirmCancel}
+        title={`Cancel Order #${orderToCancel?.orderNumber}?`}
+        message="Are you sure you want to cancel this delivery dispatch? The courier offer cascade will be terminated and order status marked as cancelled."
+        confirmText="Cancel Order"
+        variant="danger"
+        isLoading={isCancelling}
+      />
     </div>
   );
 };

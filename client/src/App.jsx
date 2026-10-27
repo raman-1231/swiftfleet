@@ -171,6 +171,8 @@ export default function App() {
                   />
 
                   {/* Shared Order Tracking */}
+                  <Route path="/orders/new" element={<Navigate to="/business/create" replace />} />
+                  <Route path="/orders/create" element={<Navigate to="/business/create" replace />} />
                   <Route
                     path="/orders/:id"
                     element={

@@ -7,6 +7,6 @@ router.post('/estimate', verifyToken, orderController.estimateOrder);
 router.post('/', verifyToken, requireRole('business', 'admin'), orderController.createOrder);
 router.get('/', verifyToken, orderController.getOrders);
 router.get('/:id', verifyToken, orderController.getOrderById);
-router.post('/:id/cancel', verifyToken, orderController.cancelOrder);
+router.post('/:id/cancel', verifyToken, requireRole('business', 'admin'), orderController.cancelOrder);
 
 module.exports = router;

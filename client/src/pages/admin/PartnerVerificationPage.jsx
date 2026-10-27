@@ -29,6 +29,8 @@ export const PartnerVerificationPage = () => {
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [decryptedDoc, setDecryptedDoc] = useState(null);
+  const [decrypting, setDecrypting] = useState(false);
 
   const fetchPartners = async () => {
     try {
@@ -46,6 +48,19 @@ export const PartnerVerificationPage = () => {
     fetchPartners();
   }, [statusFilter, search]);
 
+  const handleDecryptKYC = async (partnerUserId) => {
+    try {
+      setDecrypting(true);
+      const res = await api.get(`/admin/partners/${partnerUserId}/decrypt-kyc?reason=ComplianceInspection`);
+      setDecryptedDoc(res);
+      toast.info('Decryption Audited', 'Identity document decryption logged to compliance audit trail.');
+    } catch (err) {
+      toast.error('Decryption Failed', err.message);
+    } finally {
+      setDecrypting(false);
+    }
+  };
+
   const handleUpdateStatus = async (partnerId, targetStatus) => {
     try {
       setIsSubmitting(true);
@@ -55,6 +70,7 @@ export const PartnerVerificationPage = () => {
       });
       toast.success('Status Updated', res.message);
       setSelectedPartner(null);
+      setDecryptedDoc(null);
       setReviewNotes('');
       fetchPartners();
     } catch (err) {
@@ -75,7 +91,7 @@ export const PartnerVerificationPage = () => {
             Partner Workforce Verification
           </h1>
           <p className="text-xs text-ink-500 mt-0.5">
-            Audit driver license metadata, identity uploads, and authorize active delivery dispatch eligibility
+            Audit compliance documents (Driving Licence, Aadhaar, PAN), verify credentials, and authorize active delivery dispatch eligibility
           </p>
         </div>
 
@@ -101,7 +117,7 @@ export const PartnerVerificationPage = () => {
               <tr className="bg-ink-50/70 border-b border-ink-100 text-ink-500 font-medium">
                 <th className="py-3 px-6">Courier Name</th>
                 <th className="py-3 px-6">Vehicle Class</th>
-                <th className="py-3 px-6">License / ID Number</th>
+                <th className="py-3 px-6">Compliance Doc Number</th>
                 <th className="py-3 px-6">Availability</th>
                 <th className="py-3 px-6">Vetting Status</th>
                 <th className="py-3 px-6 text-right">Actions</th>
@@ -144,6 +160,7 @@ export const PartnerVerificationPage = () => {
                         leftIcon={<Eye className="w-3.5 h-3.5" />}
                         onClick={() => {
                           setSelectedPartner(partner);
+                          setDecryptedDoc(null);
                           setReviewNotes(partner.verificationNotes || '');
                         }}
                       >
@@ -187,16 +204,30 @@ export const PartnerVerificationPage = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-ink-500">Document Type:</span>
-                <span className="text-ink-900">{selectedPartner.idDocumentType || 'Driver License'}</span>
+                <span className="text-ink-900">{selectedPartner.idDocumentType || 'Driving Licence'}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-ink-500">License Number:</span>
-                <span className="font-mono font-bold text-ink-900">{selectedPartner.licenseNumber}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-ink-500">Document Number:</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-ink-900">
+                    {decryptedDoc ? decryptedDoc.licenseNumber : (selectedPartner.licenseNumberMasked || selectedPartner.licenseNumber)}
+                  </span>
+                  {!decryptedDoc && (
+                    <button
+                      type="button"
+                      onClick={() => handleDecryptKYC(selectedPartner.userId?._id || selectedPartner.userId)}
+                      disabled={decrypting}
+                      className="text-[10px] text-brand-600 hover:text-brand-800 underline font-semibold"
+                    >
+                      {decrypting ? 'Decrypting...' : 'Decrypt (Audit Logged)'}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-ink-500">Document File Token:</span>
                 <span className="font-mono text-brand-600 truncate max-w-[200px]">
-                  {selectedPartner.idDocumentUrl || 'demo_license_metadata.pdf'}
+                  {selectedPartner.idDocumentUrl || 'kyc_document_verified.pdf'}
                 </span>
               </div>
             </div>
@@ -209,7 +240,7 @@ export const PartnerVerificationPage = () => {
                 rows={2}
                 value={reviewNotes}
                 onChange={(e) => setReviewNotes(e.target.value)}
-                placeholder="State DL verified against commercial delivery standards on 2026-10-24."
+                placeholder="KYC credentials verified against official registry on 2026-10-25."
                 className="w-full px-3 py-2 text-xs bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>

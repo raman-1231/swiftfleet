@@ -44,6 +44,7 @@ const orderSchema = new mongoose.Schema(
     ],
     pickup: {
       address: { type: String, required: true },
+      pincode: { type: String, default: '' },
       contactName: { type: String, default: 'Store Manager' },
       phone: { type: String, default: '' },
       coordinates: {
@@ -54,6 +55,7 @@ const orderSchema = new mongoose.Schema(
     },
     dropoff: {
       address: { type: String, required: true },
+      pincode: { type: String, default: '' },
       contactName: { type: String, required: true },
       phone: { type: String, required: true },
       coordinates: {
@@ -73,10 +75,13 @@ const orderSchema = new mongoose.Schema(
       notes: { type: String, default: '' }
     },
     pricing: {
+      currency: { type: String, default: 'INR' },
+      currencySymbol: { type: String, default: '₹' },
       baseFare: { type: Number, required: true },
       distanceKm: { type: Number, required: true },
       distanceCost: { type: Number, required: true },
       weightCost: { type: Number, default: 0 },
+      categoryCharge: { type: Number, default: 0 },
       totalCost: { type: Number, required: true },
       partnerPayout: { type: Number, required: true }
     },
@@ -98,6 +103,26 @@ const orderSchema = new mongoose.Schema(
       updatedAt: { type: Date }
     },
     earningsCredited: {
+      type: Boolean,
+      default: false
+    },
+    handoverPin: {
+      type: String,
+      default: ''
+    },
+    handoverPinHash: {
+      type: String,
+      default: ''
+    },
+    handoverPinAttempts: {
+      type: Number,
+      default: 0
+    },
+    handoverPinLocked: {
+      type: Boolean,
+      default: false
+    },
+    handoverPinVerified: {
       type: Boolean,
       default: false
     },

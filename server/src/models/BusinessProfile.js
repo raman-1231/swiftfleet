@@ -21,14 +21,25 @@ const businessProfileSchema = new mongoose.Schema(
     },
     address: {
       type: String,
-      default: '350 5th Ave, New York, NY 10118'
+      default: ''
+    },
+    pincode: {
+      type: String,
+      trim: true,
+      default: ''
     },
     phone: {
       type: String,
       default: ''
     },
     taxId: {
+      type: String, // GSTIN or PAN for Indian Businesses
+      trim: true,
+      default: ''
+    },
+    gstin: {
       type: String,
+      trim: true,
       default: ''
     },
     defaultCoordinates: {
@@ -38,8 +49,8 @@ const businessProfileSchema = new mongoose.Schema(
         default: 'Point'
       },
       coordinates: {
-        type: [Number],
-        default: [-73.9851, 40.7484]
+        type: [Number], // [lng, lat]
+        default: [77.2090, 28.6139] // Baseline India coordinates (New Delhi)
       }
     }
   },

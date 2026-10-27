@@ -4,6 +4,7 @@ import { api } from '../../api/apiClient';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { StatusBadge } from '../../components/common/Badge';
+import { formatINR } from '../../utils/currency';
 import { Search, Filter, ArrowUpRight, PlusCircle, Package } from 'lucide-react';
 
 export const OrderHistoryPage = () => {
@@ -134,7 +135,7 @@ export const OrderHistoryPage = () => {
                       <StatusBadge status={order.status} />
                     </td>
                     <td className="py-3.5 px-6 text-right font-mono font-bold text-ink-950">
-                      ${order.pricing?.totalCost?.toFixed(2)}
+                      {formatINR(order.pricing?.totalCost)}
                     </td>
                     <td className="py-3.5 px-6 text-right">
                       <Link

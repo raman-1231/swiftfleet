@@ -1,4 +1,5 @@
-const BASE_URL = '/api';
+const apiBase = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '';
+const BASE_URL = apiBase ? `${apiBase}/api` : '/api';
 
 async function request(endpoint, options = {}) {
   const token = localStorage.getItem('swiftfleet_token');

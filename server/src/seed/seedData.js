@@ -5,22 +5,23 @@ const users = [
     email: 'admin@swiftfleet.io',
     password: 'Password123!',
     role: 'admin',
-    phone: '+1 (555) 019-2831'
+    phone: '+91 98110 00001'
   },
-  // Businesses
+  // Businesses (Indian Hubs)
   {
     name: 'Artisan Roast Co.',
     email: 'roast@artisan.demo',
     password: 'Password123!',
     role: 'business',
-    phone: '+1 (555) 234-5678',
+    phone: '+91 98110 12345',
     businessProfile: {
       companyName: 'Artisan Roast Co.',
       category: 'bakery',
-      address: '240 Central Park South, New York, NY 10019',
+      address: 'Shop 14, Inner Circle, Connaught Place, New Delhi',
+      pincode: '110001',
       defaultCoordinates: {
         type: 'Point',
-        coordinates: [-73.9806, 40.7668]
+        coordinates: [77.2167, 28.6315] // Connaught Place, New Delhi
       }
     }
   },
@@ -29,14 +30,15 @@ const users = [
     email: 'contact@greenleaf.demo',
     password: 'Password123!',
     role: 'business',
-    phone: '+1 (555) 345-6789',
+    phone: '+91 98220 23456',
     businessProfile: {
       companyName: 'GreenLeaf Organics Market',
       category: 'grocery',
-      address: '150 5th Ave, New York, NY 10011',
+      address: '80 Feet Road, 4th Block, Koramangala, Bengaluru',
+      pincode: '560034',
       defaultCoordinates: {
         type: 'Point',
-        coordinates: [-73.9918, 40.7402]
+        coordinates: [77.6245, 12.9352] // Koramangala, Bengaluru
       }
     }
   },
@@ -45,93 +47,94 @@ const users = [
     email: 'orders@midtownrx.demo',
     password: 'Password123!',
     role: 'business',
-    phone: '+1 (555) 456-7890',
+    phone: '+91 98330 34567',
     businessProfile: {
       companyName: 'Midtown Express Pharmacy',
       category: 'pharmacy',
-      address: '530 7th Ave, New York, NY 10018',
+      address: 'G Block, Bandra Kurla Complex (BKC), Bandra East, Mumbai',
+      pincode: '400051',
       defaultCoordinates: {
         type: 'Point',
-        coordinates: [-73.9877, 40.7538]
+        coordinates: [72.8687, 19.0688] // BKC, Mumbai
       }
     }
   },
-  // Delivery Partners
+  // Delivery Partners (Indian Courier Fleets)
   {
-    name: 'Marcus Vance',
+    name: 'Rajesh Sharma',
     email: 'marcus.vance@courier.demo',
     password: 'Password123!',
     role: 'partner',
-    phone: '+1 (555) 789-0123',
+    phone: '+91 98110 54321',
     partnerProfile: {
       verificationStatus: 'approved',
-      verificationNotes: 'Verified state DL & commercial courier background check on 2026-10-15.',
+      verificationNotes: 'Verified Indian Driving License & commercial courier background check on 2026-10-15.',
       vehicleType: 'motorcycle',
-      licenseNumber: 'NY-DL-8823194',
+      licenseNumber: 'DL-01-2022-0045129',
       idDocumentType: 'Driver License',
-      idDocumentNumber: 'NY-DL-8823194',
-      idDocumentUrl: '/docs/demo_marcus_dl.pdf',
+      idDocumentNumber: 'DL-01-2022-0045129',
+      idDocumentUrl: '/docs/demo_rajesh_dl.pdf',
       isOnline: true,
       isAvailable: true,
       currentCoordinates: {
         type: 'Point',
-        coordinates: [-73.9842, 40.7505] // Herald Square
+        coordinates: [77.2090, 28.6139] // New Delhi Central
       },
       stats: {
         totalDeliveries: 142,
         rating: 4.92,
         acceptanceRate: 98,
-        totalEarned: 1845.50
+        totalEarned: 24500.00
       }
     }
   },
   {
-    name: 'Elena Rostova',
+    name: 'Priya Patel',
     email: 'elena.rostova@courier.demo',
     password: 'Password123!',
     role: 'partner',
-    phone: '+1 (555) 890-1234',
+    phone: '+91 98220 65432',
     partnerProfile: {
       verificationStatus: 'approved',
-      verificationNotes: 'Identity confirmed and equipment checklist verified.',
+      verificationNotes: 'Aadhaar identity confirmed and delivery equipment checklist verified.',
       vehicleType: 'bicycle',
-      licenseNumber: 'NY-ID-4491023',
+      licenseNumber: 'KA-01-2023-0098412',
       idDocumentType: 'National ID',
-      idDocumentNumber: 'US-PASS-990141',
-      idDocumentUrl: '/docs/demo_elena_id.pdf',
-      isOnline: true,
+      idDocumentNumber: 'AADHAAR-990141',
+      idDocumentUrl: '/docs/demo_priya_id.pdf',
+      isOnline: false,
       isAvailable: true,
       currentCoordinates: {
         type: 'Point',
-        coordinates: [-73.9785, 40.7580] // Rockefeller Center area
+        coordinates: [77.6245, 12.9352] // Koramangala Bengaluru
       },
       stats: {
         totalDeliveries: 89,
         rating: 4.96,
         acceptanceRate: 96,
-        totalEarned: 1120.00
+        totalEarned: 16800.00
       }
     }
   },
   {
-    name: 'Devon Thorne',
+    name: 'Amit Verma',
     email: 'devon.thorne@courier.demo',
     password: 'Password123!',
     role: 'partner',
-    phone: '+1 (555) 901-2345',
+    phone: '+91 98330 76543',
     partnerProfile: {
       verificationStatus: 'pending',
       verificationNotes: 'Under review by safety team. Documents uploaded.',
       vehicleType: 'scooter',
-      licenseNumber: 'NY-DL-1928401',
+      licenseNumber: 'MH-02-2024-0012840',
       idDocumentType: 'Driver License',
-      idDocumentNumber: 'NY-DL-1928401',
-      idDocumentUrl: '/docs/demo_devon_dl.pdf',
+      idDocumentNumber: 'MH-02-2024-0012840',
+      idDocumentUrl: '/docs/demo_amit_dl.pdf',
       isOnline: false,
       isAvailable: true,
       currentCoordinates: {
         type: 'Point',
-        coordinates: [-73.9940, 40.7320] // Greenwich Village
+        coordinates: [72.8687, 19.0688] // BKC Mumbai
       },
       stats: {
         totalDeliveries: 0,
@@ -142,30 +145,30 @@ const users = [
     }
   },
   {
-    name: 'Samira Khan',
+    name: 'Sunita Rao',
     email: 'samira.khan@courier.demo',
     password: 'Password123!',
     role: 'partner',
-    phone: '+1 (555) 012-3456',
+    phone: '+91 98110 87654',
     partnerProfile: {
       verificationStatus: 'approved',
-      verificationNotes: 'Cargo van commercial endorsement verified.',
+      verificationNotes: 'Cargo endorsement verified for light commercial vehicle.',
       vehicleType: 'van',
-      licenseNumber: 'NY-CDL-661928',
+      licenseNumber: 'DL-03-2021-0066192',
       idDocumentType: 'Driver License',
-      idDocumentNumber: 'NY-CDL-661928',
-      idDocumentUrl: '/docs/demo_samira_cdl.pdf',
+      idDocumentNumber: 'DL-03-2021-0066192',
+      idDocumentUrl: '/docs/demo_sunita_cdl.pdf',
       isOnline: false,
       isAvailable: true,
       currentCoordinates: {
         type: 'Point',
-        coordinates: [-73.9650, 40.7750] // Upper East Side
+        coordinates: [77.2167, 28.6315] // Connaught Place Delhi
       },
       stats: {
         totalDeliveries: 64,
         rating: 4.88,
         acceptanceRate: 92,
-        totalEarned: 950.00
+        totalEarned: 14200.00
       }
     }
   }

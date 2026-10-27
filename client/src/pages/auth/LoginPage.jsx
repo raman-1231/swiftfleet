@@ -15,6 +15,8 @@ export const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const enableDemo = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_DEMO === 'true';
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -56,36 +58,38 @@ export const LoginPage = () => {
           </p>
         </div>
 
-        {/* Demo Persona Quick-Fill Banner for Evaluator */}
-        <div className="p-3 bg-white rounded-xl border border-brand-200 shadow-subtle text-xs">
-          <p className="font-semibold text-ink-900 mb-2 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-brand-500" />
-            Portfolio Evaluation Quick-Fill:
-          </p>
-          <div className="grid grid-cols-3 gap-1.5">
-            <button
-              type="button"
-              onClick={() => fillCredentials('roast@artisan.demo')}
-              className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
-            >
-              Merchant
-            </button>
-            <button
-              type="button"
-              onClick={() => fillCredentials('marcus.vance@courier.demo')}
-              className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
-            >
-              Courier
-            </button>
-            <button
-              type="button"
-              onClick={() => fillCredentials('admin@swiftfleet.io')}
-              className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
-            >
-              Admin Ops
-            </button>
+        {/* Demo Persona Quick-Fill Banner for Evaluator (Dev Only) */}
+        {enableDemo && (
+          <div className="p-3 bg-white rounded-xl border border-brand-200 shadow-subtle text-xs">
+            <p className="font-semibold text-ink-900 mb-2 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-brand-500" />
+              Portfolio Evaluation Quick-Fill:
+            </p>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => fillCredentials('roast@artisan.demo')}
+                className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
+              >
+                Merchant
+              </button>
+              <button
+                type="button"
+                onClick={() => fillCredentials('marcus.vance@courier.demo')}
+                className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
+              >
+                Courier
+              </button>
+              <button
+                type="button"
+                onClick={() => fillCredentials('admin@swiftfleet.io')}
+                className="px-2 py-1.5 rounded-lg border border-ink-200 bg-ink-50 hover:bg-brand-50 hover:border-brand-300 text-ink-800 text-[11px] font-medium transition-colors text-center"
+              >
+                Admin Ops
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <Card className="shadow-elevated">
           {errorMessage && (

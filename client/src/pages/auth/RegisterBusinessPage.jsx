@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { Building2, Mail, Lock, Phone, MapPin, Store, ArrowRight } from 'lucide-react';
+import { Building2, Mail, Lock, Phone, MapPin, Store, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export const RegisterBusinessPage = () => {
   const { registerBusiness } = useAuth();
@@ -16,17 +16,66 @@ export const RegisterBusinessPage = () => {
     phone: '',
     companyName: '',
     category: 'restaurant',
-    address: '350 5th Ave, New York, NY 10118'
+    address: '',
+    pincode: '',
+    gstin: ''
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  const enableDemo = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_DEMO === 'true';
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    if (fieldErrors[e.target.name]) {
+      setFieldErrors({ ...fieldErrors, [e.target.name]: '' });
+    }
+  };
+
+  const handleFillSample = () => {
+    setFormData({
+      name: 'Rohan Sharma',
+      email: `merchant_${Date.now().toString().slice(-4)}@artisanroast.in`,
+      password: 'Password123!',
+      phone: '+91 98765 43210',
+      companyName: 'Artisan Roast Cafe',
+      category: 'bakery',
+      address: 'Shop 14, Inner Circle, Connaught Place, New Delhi',
+      pincode: '110001',
+      gstin: '07AAAAA0000A1Z5'
+    });
+    setFieldErrors({});
+    setErrorMessage('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const errors = {};
+    if (!formData.companyName.trim()) errors.companyName = 'Store name is required';
+    if (!formData.name.trim()) errors.name = 'Operator name is required';
+    if (!formData.address.trim()) errors.address = 'Merchant address is required';
+    if (!formData.email.trim()) errors.email = 'Valid email is required';
+    if (!formData.password || formData.password.length < 8) errors.password = 'Password must be at least 8 characters';
+
+    // India 10-digit mobile validation
+    const phoneClean = formData.phone.replace(/[\s-]/g, '');
+    if (formData.phone && !/^(\+91|0)?[6-9]\d{9}$/.test(phoneClean)) {
+      errors.phone = 'Enter a valid 10-digit Indian mobile number (+91 or starting with 6-9)';
+    }
+
+    // India 6-digit PIN code validation (/^[1-9][0-9]{5}$/)
+    if (formData.pincode && !/^[1-9][0-9]{5}$/.test(formData.pincode.trim())) {
+      errors.pincode = 'PIN code must be a valid 6-digit Indian postal code starting with 1-9';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setErrorMessage('Please correct the highlighted fields.');
+      return;
+    }
+
     setErrorMessage('');
     setIsLoading(true);
 
@@ -53,6 +102,20 @@ export const RegisterBusinessPage = () => {
           </p>
         </div>
 
+        {/* Demo Quick-Fill Helper (Dev Only) */}
+        {enableDemo && (
+          <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-brand-200 shadow-subtle text-xs">
+            <span className="text-ink-600 font-medium">Evaluation Demo Mode:</span>
+            <button
+              type="button"
+              onClick={handleFillSample}
+              className="text-xs font-semibold text-brand-600 hover:text-brand-800 underline"
+            >
+              Fill Sample Merchant Data
+            </button>
+          </div>
+        )}
+
         <Card className="shadow-elevated">
           {errorMessage && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 text-ops-danger text-xs rounded-lg font-medium">
@@ -63,7 +126,7 @@ export const RegisterBusinessPage = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-ink-800 mb-1">Company / Store Name</label>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Company / Store Name *</label>
                 <input
                   type="text"
                   required
@@ -71,8 +134,15 @@ export const RegisterBusinessPage = () => {
                   value={formData.companyName}
                   onChange={handleChange}
                   placeholder="Artisan Roast Cafe"
-                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                    fieldErrors.companyName
+                      ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                      : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                  }`}
                 />
+                {fieldErrors.companyName && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.companyName}</p>
+                )}
               </div>
 
               <div>
@@ -96,7 +166,7 @@ export const RegisterBusinessPage = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-ink-800 mb-1">Operator Name</label>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Operator Name *</label>
                 <input
                   type="text"
                   required
@@ -104,39 +174,95 @@ export const RegisterBusinessPage = () => {
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="Jane Miller"
-                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                    fieldErrors.name
+                      ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                      : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                  }`}
                 />
+                {fieldErrors.name && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.name}</p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink-800 mb-1">Business Phone</label>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Business Mobile (+91) *</label>
                 <input
                   type="tel"
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="+1 (555) 012-3456"
-                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="+91 98765 43210"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                    fieldErrors.phone
+                      ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                      : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                  }`}
                 />
+                {fieldErrors.phone && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.phone}</p>
+                )}
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-ink-800 mb-1">Merchant Pickup Address</label>
+              <label className="block text-xs font-semibold text-ink-800 mb-1">Merchant Pickup Address *</label>
               <input
                 type="text"
                 required
                 name="address"
                 value={formData.address}
                 onChange={handleChange}
-                placeholder="240 Central Park South, New York, NY"
-                className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="Shop 14, Inner Circle, Connaught Place, New Delhi"
+                className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                  fieldErrors.address
+                    ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                    : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                }`}
               />
+              {fieldErrors.address && (
+                <p className="text-[11px] text-red-600 mt-1">{fieldErrors.address}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-ink-800 mb-1">Email Address</label>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Postal PIN Code *</label>
+                <input
+                  type="text"
+                  name="pincode"
+                  maxLength={6}
+                  value={formData.pincode}
+                  onChange={handleChange}
+                  placeholder="110001"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                    fieldErrors.pincode
+                      ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                      : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                  }`}
+                />
+                {fieldErrors.pincode && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.pincode}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">GSTIN (Optional)</label>
+                <input
+                  type="text"
+                  name="gstin"
+                  maxLength={15}
+                  value={formData.gstin}
+                  onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
+                  placeholder="07AAAAA0000A1Z5"
+                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 uppercase focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Email Address *</label>
                 <input
                   type="email"
                   required
@@ -144,21 +270,45 @@ export const RegisterBusinessPage = () => {
                   value={formData.email}
                   onChange={handleChange}
                   placeholder="orders@store.com"
-                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  className={`w-full px-3 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                    fieldErrors.email
+                      ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                      : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                  }`}
                 />
+                {fieldErrors.email && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.email}</p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink-800 mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="Min. 8 characters"
-                  className="w-full px-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
+                <label className="block text-xs font-semibold text-ink-800 mb-1">Password *</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="Min. 8 characters"
+                    className={`w-full pl-3 pr-10 py-2 text-sm bg-white border rounded-lg text-ink-900 focus:outline-none ${
+                      fieldErrors.password
+                        ? 'border-red-400 focus:ring-2 focus:ring-red-400 bg-red-50/20'
+                        : 'border-ink-200 focus:ring-2 focus:ring-brand-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-2.5 text-ink-400 hover:text-ink-600"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <p className="text-[11px] text-red-600 mt-1">{fieldErrors.password}</p>
+                )}
               </div>
             </div>
 
@@ -168,6 +318,7 @@ export const RegisterBusinessPage = () => {
               className="w-full mt-2"
               size="md"
               isLoading={isLoading}
+              disabled={isLoading}
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
               Complete Merchant Registration
