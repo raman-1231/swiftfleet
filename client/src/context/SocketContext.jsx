@@ -27,8 +27,8 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const rawEndpoint = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || window.location.origin;
-    const socketEndpoint = rawEndpoint.replace(/\/api\/?$/, '');
+    const rawEndpoint = (import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || window.location.origin).trim();
+    const socketEndpoint = rawEndpoint.replace(/\/api\/?$/, '').replace(/\/$/, '');
 
     setConnectionStatus('reconnecting');
 

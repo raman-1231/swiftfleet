@@ -1,4 +1,5 @@
-const apiBase = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '';
+const rawApiUrl = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.trim().replace(/\/$/, '') : '';
+const apiBase = rawApiUrl.replace(/\/api\/?$/, '');
 const BASE_URL = apiBase ? `${apiBase}/api` : '/api';
 
 async function request(endpoint, options = {}) {
