@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/common/Button';
 import { Card } from '../../components/common/Card';
-import { Lock, Mail, Eye, EyeOff, Truck, ArrowRight, ShieldCheck, Building2, Bike } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Truck, ArrowRight, ShieldCheck, Building2, Bike, AlertCircle } from 'lucide-react';
 
 export const LoginPage = () => {
-  const { login } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
@@ -16,6 +16,22 @@ export const LoginPage = () => {
   const [errorMessage, setErrorMessage] = useState('');
 
   const enableDemo = !import.meta.env.PROD || import.meta.env.VITE_ENABLE_DEMO === 'true';
+
+  // Automatically redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const role = user.role;
+      if (role === 'business') {
+        navigate('/business', { replace: true });
+      } else if (role === 'partner') {
+        navigate('/partner', { replace: true });
+      } else if (role === 'admin') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -42,17 +58,29 @@ export const LoginPage = () => {
 
     try {
       const res = await login(cleanEmail, password);
-      if (res.user.role === 'business') {
-        navigate('/business');
-      } else if (res.user.role === 'partner') {
-        navigate('/partner');
-      } else if (res.user.role === 'admin') {
-        navigate('/admin');
+      const role = res?.user?.role;
+      if (role === 'business') {
+        navigate('/business', { replace: true });
+      } else if (role === 'partner') {
+        navigate('/partner', { replace: true });
+      } else if (role === 'admin') {
+        navigate('/admin', { replace: true });
       } else {
-        navigate('/');
+        navigate('/', { replace: true });
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Invalid email or password.');
+      console.error('Login submission failed:', err);
+      if (err.status === 401) {
+        setErrorMessage(err.message || 'Invalid email or password.');
+      } else if (err.status === 403) {
+        setErrorMessage(err.message || 'Your account has been suspended. Please reach out to administrative support.');
+      } else if (err.status === 429) {
+        setErrorMessage(err.message || 'Too many login attempts. Please wait 15 minutes before trying again.');
+      } else if (err.status === 504 || err.name === 'AbortError') {
+        setErrorMessage('Server response timed out. The backend server may be waking up, please try again.');
+      } else {
+        setErrorMessage(err.message || 'Unable to connect to SwiftFleet server. Please check your internet connection or try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -61,6 +89,7 @@ export const LoginPage = () => {
   const fillCredentials = (demoEmail) => {
     setEmail(demoEmail);
     setPassword('Password123!');
+    setErrorMessage('');
   };
 
   return (
@@ -111,8 +140,9 @@ export const LoginPage = () => {
 
         <Card className="shadow-elevated">
           {errorMessage && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-ops-danger text-xs rounded-lg font-medium">
-              {errorMessage}
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-ops-danger text-xs rounded-lg font-medium flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-ops-danger flex-shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
             </div>
           )}
 
@@ -124,7 +154,10 @@ export const LoginPage = () => {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (errorMessage) setErrorMessage('');
+                  }}
                   placeholder="name@company.com"
                   className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                 />
@@ -141,7 +174,10 @@ export const LoginPage = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (errorMessage) setErrorMessage('');
+                  }}
                   placeholder="••••••••"
                   className="w-full pl-9 pr-10 py-2 text-sm bg-white border border-ink-200 rounded-lg text-ink-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
                 />

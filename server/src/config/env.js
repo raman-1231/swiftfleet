@@ -21,16 +21,31 @@ if (isProduction) {
   }
 }
 
+// Canonical production origins always allowed by default
+const canonicalOrigins = [
+  'https://swiftfleet-rosy.vercel.app',
+  'https://swiftfleet.vercel.app'
+];
+
 // Parse comma-separated allowed origins or default to localhost
-const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
-  .split(',')
-  .map((origin) => origin.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+const allowedOrigins = [
+  ...canonicalOrigins,
+  ...(process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL.trim().replace(/\/$/, '')] : []),
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.trim().replace(/\/$/, '')] : [])
+];
 
 function isOriginAllowed(origin) {
   if (!origin) return true; // Server-to-server, curl, mobile native
   const normalized = origin.trim().replace(/\/$/, '');
   if (allowedOrigins.includes(normalized)) return true;
+  // Allow all Vercel deployment preview subdomains
+  if (/^https:\/\/[a-zA-Z0-9_-]+\.vercel\.app$/.test(normalized)) {
+    return true;
+  }
   if (!isProduction && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)) {
     return true;
   }

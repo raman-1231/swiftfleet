@@ -79,7 +79,11 @@ export const CustomerTrackingPage = () => {
   useEffect(() => {
     if (!token) return;
 
-    const rawEndpoint = (import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || window.location.origin).trim();
+    const rawEndpoint = (
+      import.meta.env.VITE_SOCKET_URL ||
+      import.meta.env.VITE_API_URL ||
+      (import.meta.env.PROD ? 'https://swiftfleet.onrender.com' : window.location.origin)
+    ).trim();
     const socketEndpoint = rawEndpoint.replace(/\/api\/?$/, '').replace(/\/$/, '');
 
     const s = io(socketEndpoint, {
